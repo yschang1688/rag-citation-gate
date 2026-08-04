@@ -1,0 +1,27 @@
+{
+ "note": "人工出題基準集。出題方式：先讀語料實際條文再寫問題，不憑記憶——憑記憶出題會把出題者自己的幻覺當成標準答案（eval-hygiene 的出題者偏差）。expect_label 為人工判定的應命中條號；unanswerable 題的正解是『拒答』，用來量測系統會不會在語料無據時硬答。不可答題分兩種難度：u* 是跨法域（勞基法、稅法等，拒答容易）；n* 是同領域近似題——檢索一定會撈到看似相關的條文（存款保險、最低資本額、一定金額、利率上限），但答案其實在子法或他法，模型最容易在這裡自行補完數字。第一版只有 u* 時四項指標全滿分，正是因為題目太好過，故補上 n*。",
+ "cases": [
+  {"id": "q01", "q": "銀行可以經營哪些業務？", "law": "銀行法", "expect_label": "第3條", "answerable": true},
+  {"id": "q02", "q": "銀行法所稱的「收受存款」定義是什麼？", "law": "銀行法", "expect_label": "第5-1條", "answerable": true},
+  {"id": "q03", "q": "銀行法的擔保授信，可以用哪些東西當擔保？", "law": "銀行法", "expect_label": "第12條", "answerable": true},
+  {"id": "q04", "q": "銀行對主要股東可以做無擔保授信嗎？", "law": "銀行法", "expect_label": "第32條", "answerable": true},
+  {"id": "q05", "q": "商業銀行辦理住宅建築及企業建築放款的總額上限是多少？", "law": "銀行法", "expect_label": "第72-2條", "answerable": true},
+  {"id": "q06", "q": "洗錢防制法所稱的洗錢，指哪些行為？", "law": "洗錢防制法", "expect_label": "第2條", "answerable": true},
+  {"id": "q07", "q": "金融機構的交易紀錄至少要保存幾年？", "law": "洗錢防制法", "expect_label": "第10條", "answerable": true},
+  {"id": "q08", "q": "達一定金額的通貨交易要向哪個機關申報？", "law": "洗錢防制法", "expect_label": "第12條", "answerable": true},
+  {"id": "q09", "q": "當事人對自己的個人資料有哪些不得預先拋棄的權利？", "law": "個人資料保護法", "expect_label": "第3條", "answerable": true},
+  {"id": "q10", "q": "個人資料的特定目的消失時，應該怎麼處理？", "law": "個人資料保護法", "expect_label": "第11條", "answerable": true},
+  {"id": "q11", "q": "非公務機關違反個資法造成損害，要負賠償責任嗎？可以免責嗎？", "law": "個人資料保護法", "expect_label": "第29條", "answerable": true},
+  {"id": "q12", "q": "非公務機關蒐集個人資料需要符合哪些情形之一？", "law": "個人資料保護法", "expect_label": "第19條", "answerable": true},
+
+  {"id": "u01", "q": "內線交易的刑度是幾年以下有期徒刑？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "u02", "q": "勞工工作滿三年，每年特別休假有幾天？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "u03", "q": "股份有限公司董事的任期最長是幾年？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "u04", "q": "營利事業所得稅的稅率是多少？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+
+  {"id": "n01", "q": "存款保險的理賠上限金額是多少？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：銀行法第46條只授權設立存款保險組織，理賠上限在存款保險條例，不在本語料"},
+  {"id": "n02", "q": "銀行的最低資本額是新臺幣多少元？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：第23條只說由主管機關核定，具體金額不在條文"},
+  {"id": "n03", "q": "洗錢防制法規定應申報的「一定金額」通貨交易，門檻是新臺幣多少元？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：第12條把金額授權給子法辦法，條文本身沒有數字"},
+  {"id": "n04", "q": "銀行辦理住宅建築放款的利率上限是多少？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：第72-2條只限制總額比例、第47-1條的利率上限是信用卡與現金卡，兩者都不是住宅放款利率"}
+ ]
+}

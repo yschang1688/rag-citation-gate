@@ -1,0 +1,15 @@
+# 向量庫：pgvector（原生 arm64 映像）。密碼為本機一次性開發憑證，只綁 127.0.0.1。
+services:
+  pgvector:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag-dev-only
+      POSTGRES_DB: rag
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
