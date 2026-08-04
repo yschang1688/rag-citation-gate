@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  citation-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install pytest
+      # 引文閘的單元測試不需要向量庫或模型：閘門是純函式，
+      # 這也正是它可以被信任的原因之一——可驗證的部分不依賴不可驗證的元件。
+      - run: python -m pytest tests/ -q
+
+  corpus-integrity:
+    # 語料若在來源端就缺角，引文閘驗不出來（它只驗引文忠於語料）。
+    # 這裡守的是「repo 內附的語料快照有沒有被改壞」。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 語料條數與結構檢查
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          expected = {"G0380001": 185, "I0050021": 65, "G0380131": 31}
+          for pcode, n in expected.items():
+              d = json.loads(pathlib.Path(f"data/corpus/{pcode}.json").read_text(encoding="utf-8"))
+              arts = d["articles"]
+              if len(arts) != n:
+                  sys.exit(f"{d['law']}: 預期 {n} 條，實際 {len(arts)} 條")
+              if any(not a["text"].strip() or not a["label"].startswith("第") for a in arts):
+                  sys.exit(f"{d['law']}: 有條文為空或條號格式異常")
+          print("✓ 語料條數與結構符合")
+          PY

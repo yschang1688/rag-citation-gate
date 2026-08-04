@@ -1,5 +1,7 @@
 # 引文驗證閘：讓 RAG 的「有憑有據」可被程式檢查
 
+[![tests](https://github.com/yschang1688/rag-citation-gate/actions/workflows/tests.yml/badge.svg)](https://github.com/yschang1688/rag-citation-gate/actions/workflows/tests.yml)
+
 檢索增強生成（RAG）最常見的失效不是檢索不到，是**生成端看起來有憑有據、實際上沒有**——引了不存在的條號，或把條文改寫幾個字再加上引號。這個專案把防線建在程式端：模型輸出的每一條引文都要通過逐字驗證，任一條沒過，整個回答判拒答。
 
 > **In brief** — A Chinese-language legal RAG pipeline whose answers are gated by a deterministic
