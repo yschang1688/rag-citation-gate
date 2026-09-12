@@ -143,6 +143,139 @@ print("\n✓ 已寫入 vllm_results.json —— 下載這個檔案")
 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
 '''
 
+# ============================================================
+# 並發飽和點掃描：第一輪只測到 8，吞吐還在爬，沒看到轉折。
+#
+# 「吞吐隨並發線性上升」在 1–8 成立，但那不是結論而是「還沒到頭」——
+# 任何排隊系統都有飽和點，只是位置沒量到。這一支把並發推到 32，
+# 要回答的是：**吞吐在哪裡不再上升，以及那一刻延遲付出多少代價。**
+#
+# 與 BENCH 的差異：
+#   - 只掃並發（不重跑上下文長度那軸，那條已經有答案）
+#   - 每格跑兩輪取較好值，因為高並發的單輪變異比低並發大
+#   - 多記 per-request 延遲與 p95，飽和之後「平均還行但尾巴很慘」是常態
+#   - 等待迴圈**同時檢查子行程死活**，修掉 BENCH 那個靜默失敗的弱點
+# ============================================================
+CONC_SWEEP = r'''
+import json, statistics, subprocess, threading, time, urllib.request, os, signal
+
+MODEL = "Qwen/Qwen2.5-3B-Instruct"
+PORT  = 8000
+BASE  = f"http://127.0.0.1:{PORT}"
+LEVELS = [1, 2, 4, 8, 16, 32]
+ROUNDS = 2
+
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+QUESTION = "\n\n根據以上內容，用一句話說明什麼是擔保授信。"
+PROMPT = FILLER * max(1, 400 // len(FILLER)) + QUESTION
+
+def server_up():
+    try:
+        urllib.request.urlopen(f"{BASE}/v1/models", timeout=2)
+        return True
+    except Exception:
+        return False
+
+proc = None
+if server_up():
+    print("✓ 沿用既有 server")
+else:
+    proc = subprocess.Popen(
+        ["vllm", "serve", MODEL, "--port", str(PORT), "--dtype", "float16",
+         "--max-model-len", "8192", "--gpu-memory-utilization", "0.90"],
+        stdout=open("vllm.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+    print("啟動 server…")
+    for i in range(600):
+        # 同時檢查「行程還活著嗎」——只檢查端點的話，行程早就死了還會安靜等滿 20 分鐘
+        if proc.poll() is not None:
+            print(open("vllm.log").read()[-2000:])
+            raise SystemExit(f"server 在啟動時就掛了（exit {proc.returncode}），日誌如上")
+        if server_up():
+            print("✓ 就緒"); break
+        time.sleep(2)
+    else:
+        raise SystemExit("server 逾時未就緒，看 vllm.log")
+
+def post_stream(prompt, num_predict):
+    body = json.dumps({"model": MODEL, "prompt": prompt, "max_tokens": num_predict,
+                       "temperature": 0, "stream": True}).encode()
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=body,
+                                 headers={"content-type": "application/json"})
+    t0 = time.perf_counter(); ttft = None; n = 0
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for raw in r:
+            line = raw.decode().strip()
+            if not line.startswith("data:"): continue
+            payload = line[5:].strip()
+            if payload == "[DONE]": break
+            try: txt = json.loads(payload)["choices"][0].get("text", "")
+            except Exception: continue
+            if txt:
+                if ttft is None: ttft = time.perf_counter() - t0
+                n += 1
+    return (ttft or time.perf_counter() - t0), time.perf_counter() - t0, n
+
+def pct(xs, q):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))]
+
+def run(conc):
+    res, lock = [], threading.Lock()
+    def worker():
+        r = post_stream(PROMPT, 48)
+        with lock: res.append(r)
+    ths = [threading.Thread(target=worker) for _ in range(conc)]
+    t0 = time.perf_counter()
+    [t.start() for t in ths]; [t.join() for t in ths]
+    wall = time.perf_counter() - t0
+    ttfts = [r[0] for r in res]
+    return {"concurrency": conc, "wall_s": round(wall, 2),
+            "aggregate_tok_s": round(sum(r[2] for r in res) / wall, 2),
+            "ttft_s_median": round(statistics.median(ttfts), 3),
+            "ttft_s_p95": round(pct(ttfts, 0.95), 3),
+            "ttft_s_max": round(max(ttfts), 3),
+            "e2e_s_median": round(statistics.median([r[1] for r in res]), 3),
+            "completed": len(res)}
+
+post_stream(PROMPT, 8)  # warm-up
+out = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM", "model": MODEL,
+                "dtype": "float16", "levels": LEVELS, "rounds": ROUNDS,
+                "prompt_target_tokens": 400, "max_tokens": 48,
+                "note": "找吞吐飽和點。每格兩輪取吞吐較高者，高並發單輪變異較大。",
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+       "sweep": []}
+
+print("\n=== 並發飽和點掃描 ===")
+prev = None
+for c in LEVELS:
+    best = max((run(c) for _ in range(ROUNDS)), key=lambda r: r["aggregate_tok_s"])
+    gain = None if prev is None else round(best["aggregate_tok_s"] / prev, 2)
+    best["gain_vs_prev"] = gain
+    prev = best["aggregate_tok_s"]
+    out["sweep"].append(best)
+    g = "—" if gain is None else f"x{gain}"
+    print(f"  conc={c:>3} | 吞吐 {best['aggregate_tok_s']:>8.2f} tok/s ({g:>6}) | "
+          f"TTFT 中位 {best['ttft_s_median']:>6.3f} p95 {best['ttft_s_p95']:>6.3f} "
+          f"最差 {best['ttft_s_max']:>6.3f} | 端到端中位 {best['e2e_s_median']:>6.3f}")
+
+# 飽和點的判準寫在程式裡，不靠事後目測：相對前一格的增幅首次掉到 1.2 倍以下
+# （並發翻倍、吞吐卻不到 1.2 倍，代表已經不是靠批次化在擴充）
+sat = next((r["concurrency"] for r in out["sweep"]
+            if r["gain_vs_prev"] is not None and r["gain_vs_prev"] < 1.2), None)
+out["meta"]["saturation_at"] = sat
+out["meta"]["saturation_rule"] = "併發翻倍時吞吐增幅首次 < 1.2x"
+print(f"\n飽和點（增幅首次 < 1.2x）：{sat if sat else '未在 32 以內出現'}")
+
+with open("vllm_conc_sweep.json", "w") as f:
+    json.dump(out, f, ensure_ascii=False, indent=1)
+print("✓ 已寫入 vllm_conc_sweep.json")
+
+if proc is not None:
+    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
@@ -151,3 +284,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Cell 2（量測）：")
     print(BENCH)
+    print("=" * 60)
+    print("Cell 3（並發飽和點掃描）：")
+    print(CONC_SWEEP)
