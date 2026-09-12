@@ -1,0 +1,262 @@
+{
+ "strategy": "hybrid",
+ "k": 5,
+ "questions": "golden/questions-hard.json",
+ "elapsed_s": 4.5,
+ "groups": {
+  "colloquial": {
+   "n": 12,
+   "recall@5": 0.5,
+   "mrr": 0.431,
+   "top1_acc": 0.0
+  },
+  "referential": {
+   "n": 6,
+   "recall@5": 1.0,
+   "mrr": 0.792,
+   "top1_acc": 0.667
+  },
+  "unanswerable": {
+   "n": 8,
+   "top1_dist_median": 0.0,
+   "top1_dist_min": 0.0
+  }
+ },
+ "rows": [
+  {
+   "id": "c01",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": null,
+   "top1": "銀行法 第20條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第3條"
+  },
+  {
+   "id": "c02",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": 2,
+   "top1": "銀行法 第29-1條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第5-1條"
+  },
+  {
+   "id": "c03",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": null,
+   "top1": "銀行法 第42條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第12條"
+  },
+  {
+   "id": "c04",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": 2,
+   "top1": "銀行法 第30條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第32條"
+  },
+  {
+   "id": "c05",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": null,
+   "top1": "銀行法 第42條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第72-2條"
+  },
+  {
+   "id": "c06",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": 3,
+   "top1": "洗錢防制法 第9條",
+   "top1_dist": 0.0,
+   "expect": "洗錢防制法 第2條"
+  },
+  {
+   "id": "c07",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": 2,
+   "top1": "銀行法 第33-2條",
+   "top1_dist": 0.0,
+   "expect": "洗錢防制法 第10條"
+  },
+  {
+   "id": "c08",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": null,
+   "top1": "洗錢防制法 第26條",
+   "top1_dist": 0.0,
+   "expect": "洗錢防制法 第12條"
+  },
+  {
+   "id": "c09",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": 2,
+   "top1": "個人資料保護法 第7條",
+   "top1_dist": 0.0,
+   "expect": "個人資料保護法 第3條"
+  },
+  {
+   "id": "c10",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": 4,
+   "top1": "個人資料保護法 第24條",
+   "top1_dist": 0.0,
+   "expect": "個人資料保護法 第11條"
+  },
+  {
+   "id": "c11",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": null,
+   "top1": "個人資料保護法 第41條",
+   "top1_dist": 0.0,
+   "expect": "個人資料保護法 第29條"
+  },
+  {
+   "id": "c12",
+   "variant": "colloquial",
+   "answerable": true,
+   "rank": null,
+   "top1": "洗錢防制法 第8條",
+   "top1_dist": 0.0,
+   "expect": "個人資料保護法 第19條"
+  },
+  {
+   "id": "r01",
+   "variant": "referential",
+   "answerable": true,
+   "rank": 2,
+   "top1": "銀行法 第72條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第72-2條"
+  },
+  {
+   "id": "r02",
+   "variant": "referential",
+   "answerable": true,
+   "rank": 1,
+   "top1": "個人資料保護法 第29條",
+   "top1_dist": 0.0,
+   "expect": "個人資料保護法 第29條"
+  },
+  {
+   "id": "r03",
+   "variant": "referential",
+   "answerable": true,
+   "rank": 4,
+   "top1": "洗錢防制法 第9條",
+   "top1_dist": 0.0,
+   "expect": "洗錢防制法 第10條"
+  },
+  {
+   "id": "r04",
+   "variant": "referential",
+   "answerable": true,
+   "rank": 1,
+   "top1": "銀行法 第5-1條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第5-1條"
+  },
+  {
+   "id": "r05",
+   "variant": "referential",
+   "answerable": true,
+   "rank": 1,
+   "top1": "個人資料保護法 第11條",
+   "top1_dist": 0.0,
+   "expect": "個人資料保護法 第11條"
+  },
+  {
+   "id": "r06",
+   "variant": "referential",
+   "answerable": true,
+   "rank": 1,
+   "top1": "銀行法 第32條",
+   "top1_dist": 0.0,
+   "expect": "銀行法 第32條"
+  },
+  {
+   "id": "u01",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "洗錢防制法 第24條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "u02",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "銀行法 第136-2條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "u03",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "銀行法 第126條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "u04",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "洗錢防制法 第12條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "n01",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "銀行法 第46條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "n02",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "銀行法 第23條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "n03",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "洗錢防制法 第12條",
+   "top1_dist": 0.0,
+   "expect": null
+  },
+  {
+   "id": "n04",
+   "variant": "unanswerable",
+   "answerable": false,
+   "rank": null,
+   "top1": "銀行法 第72-2條",
+   "top1_dist": 0.0,
+   "expect": null
+  }
+ ],
+ "overall_recall": 0.667
+}

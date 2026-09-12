@@ -1,0 +1,163 @@
+{
+ "meta": {
+  "host": "Apple M1 16GB / macOS",
+  "engine": "Ollama (llama.cpp + Metal)",
+  "note": "TTFT 以第一個 streaming chunk 的牆鐘時間為準；self_reported 為 Ollama 自報的 prefill 時間，兩者差額為引擎外開銷。",
+  "num_ctx": 8192,
+  "generated_at": "2026-09-12T21:22:29+0800"
+ },
+ "latency": [
+  {
+   "model": "qwen3.5:4b",
+   "target_prompt_tokens": 0,
+   "actual_prompt_tokens": 25,
+   "ttft_s_median": 0.145,
+   "ttft_s_min": 0.118,
+   "decode_tok_s_median": 15.88,
+   "prefill_tok_s": null,
+   "self_reported_prompt_eval_ms": 114.2,
+   "overhead_ms": 31.3,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:4b",
+   "target_prompt_tokens": 400,
+   "actual_prompt_tokens": 310,
+   "ttft_s_median": 0.125,
+   "ttft_s_min": 0.12,
+   "decode_tok_s_median": 15.83,
+   "prefill_tok_s": 2692.1,
+   "self_reported_prompt_eval_ms": 115.2,
+   "overhead_ms": 9.7,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:4b",
+   "target_prompt_tokens": 1600,
+   "actual_prompt_tokens": 1162,
+   "ttft_s_median": 0.125,
+   "ttft_s_min": 0.124,
+   "decode_tok_s_median": 16.2,
+   "prefill_tok_s": 9971.6,
+   "self_reported_prompt_eval_ms": 116.5,
+   "overhead_ms": 8.7,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:4b",
+   "target_prompt_tokens": 4000,
+   "actual_prompt_tokens": 2866,
+   "ttft_s_median": 0.137,
+   "ttft_s_min": 0.136,
+   "decode_tok_s_median": 15.94,
+   "prefill_tok_s": 24465.6,
+   "self_reported_prompt_eval_ms": 117.1,
+   "overhead_ms": 19.4,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:9b",
+   "target_prompt_tokens": 0,
+   "actual_prompt_tokens": 25,
+   "ttft_s_median": 0.276,
+   "ttft_s_min": 0.261,
+   "decode_tok_s_median": 7.98,
+   "prefill_tok_s": null,
+   "self_reported_prompt_eval_ms": 249.1,
+   "overhead_ms": 26.7,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:9b",
+   "target_prompt_tokens": 400,
+   "actual_prompt_tokens": 310,
+   "ttft_s_median": 0.291,
+   "ttft_s_min": 0.249,
+   "decode_tok_s_median": 8.3,
+   "prefill_tok_s": 1296.3,
+   "self_reported_prompt_eval_ms": 239.1,
+   "overhead_ms": 51.5,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:9b",
+   "target_prompt_tokens": 1600,
+   "actual_prompt_tokens": 1162,
+   "ttft_s_median": 0.259,
+   "ttft_s_min": 0.234,
+   "decode_tok_s_median": 8.13,
+   "prefill_tok_s": 2384.4,
+   "self_reported_prompt_eval_ms": 487.3,
+   "overhead_ms": -228.5,
+   "repeats": 3
+  },
+  {
+   "model": "qwen3.5:9b",
+   "target_prompt_tokens": 4000,
+   "actual_prompt_tokens": 2866,
+   "ttft_s_median": 0.452,
+   "ttft_s_min": 0.293,
+   "decode_tok_s_median": 6.84,
+   "prefill_tok_s": 3734.6,
+   "self_reported_prompt_eval_ms": 767.4,
+   "overhead_ms": -315.3,
+   "repeats": 3
+  }
+ ],
+ "concurrency": [
+  {
+   "model": "qwen3.5:4b",
+   "concurrency": 1,
+   "wall_s": 3.28,
+   "aggregate_tok_s": 14.63,
+   "ttft_s_median": 0.139,
+   "ttft_s_max": 0.139,
+   "requests_per_min": 18.3
+  },
+  {
+   "model": "qwen3.5:4b",
+   "concurrency": 2,
+   "wall_s": 7.57,
+   "aggregate_tok_s": 12.69,
+   "ttft_s_median": 1.9,
+   "ttft_s_max": 3.648,
+   "requests_per_min": 15.9
+  },
+  {
+   "model": "qwen3.5:4b",
+   "concurrency": 4,
+   "wall_s": 16.34,
+   "aggregate_tok_s": 11.75,
+   "ttft_s_median": 7.07,
+   "ttft_s_max": 12.913,
+   "requests_per_min": 14.7
+  },
+  {
+   "model": "qwen3.5:9b",
+   "concurrency": 1,
+   "wall_s": 6.76,
+   "aggregate_tok_s": 7.1,
+   "ttft_s_median": 0.297,
+   "ttft_s_max": 0.297,
+   "requests_per_min": 8.9
+  },
+  {
+   "model": "qwen3.5:9b",
+   "concurrency": 2,
+   "wall_s": 13.29,
+   "aggregate_tok_s": 7.22,
+   "ttft_s_median": 3.816,
+   "ttft_s_max": 7.241,
+   "requests_per_min": 9.0
+  },
+  {
+   "model": "qwen3.5:9b",
+   "concurrency": 4,
+   "wall_s": 26.46,
+   "aggregate_tok_s": 7.26,
+   "ttft_s_median": 9.789,
+   "ttft_s_max": 19.651,
+   "requests_per_min": 9.1
+  }
+ ]
+}

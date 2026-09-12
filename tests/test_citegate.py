@@ -100,3 +100,37 @@ def test_probe_gate_actually_gates():
     almost = text[:20] + "與" + text[21:]  # 換掉一個字
     g = one("銀行法", "第5-1條", almost)
     assert not g.ok
+
+
+# ── 條號規則層的守門測試 ────────────────────────────────────────────────
+# 加這幾個測試的理由：`retrieve()` 現在有兩路（條號直取 + 稠密檢索），
+# 而規則那路「在不該生效時要完全退場」是它相對 BM25 的唯一優勢。
+# 若哪天有人把 ARTICLE_RE 改寬、或讓規則層在沒命中時也塞東西進來，
+# 口語查詢就會重蹈 BM25 那次的覆轍（recall 0.917 → 0.500），而且靜默發生。
+
+import re as _re
+from rag import ARTICLE_RE
+
+
+def test_article_re_matches_the_three_label_shapes():
+    """第12條、第5-1條、第72-2條三種形狀都要抓得到——第二種與第三種是
+    實際踩過的失敗來源（r01/r03 就是這兩種）。"""
+    assert ARTICLE_RE.findall("銀行法第12條") == ["12"]
+    assert ARTICLE_RE.findall("銀行法第5-1條的定義") == ["5-1"]
+    assert ARTICLE_RE.findall("第72-2條是在限制什麼") == ["72-2"]
+
+
+def test_article_re_is_silent_on_colloquial_questions():
+    """探針：口語問句一個條號都不該抓到。這是規則層「自動退場」的前提——
+    這條掛了就代表規則層開始干擾語義查詢。"""
+    for q in ["跟銀行借錢的時候可以拿什麼東西去抵？",
+              "什麼樣的動作會被認定成洗錢？",
+              "一般民間企業要跟客戶收集個資，要有什麼正當理由才行？"]:
+        assert ARTICLE_RE.findall(q) == [], f"不該在口語問句抓到條號：{q}"
+
+
+def test_article_re_does_not_swallow_bare_numbers():
+    """負面約束：沒有「第…條」包夾的數字不算條號。
+    否則「保存五年」「新臺幣50萬元」都會誤觸規則層。"""
+    assert ARTICLE_RE.findall("交易紀錄至少保存5年") == []
+    assert ARTICLE_RE.findall("金額達新臺幣50萬元") == []

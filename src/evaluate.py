@@ -67,6 +67,18 @@ def main() -> None:
         "elapsed_sec": round(time.time() - t0, 1),
     }
     print("\n" + json.dumps(m, ensure_ascii=False, indent=1))
+    # 覆寫前先把上一輪歸檔。要比較前後，就不能讓後者覆蓋前者——
+    # 實測同一個坑踩了兩次（加規則層、改 k=7 兩輪驗證都是跑完才想到備份，
+    # 兩次都靠 git 還原）。靠人記得沒用，交給腳本。
+    if OUT.exists():
+        prev = json.loads(OUT.read_text(encoding="utf-8"))
+        stamp = prev.get("metrics", {}).get("elapsed_sec", "prev")
+        k = prev.get("metrics", {}).get("top_k", "?")
+        archive = OUT.parent / "archive" / f"results-k{k}-{stamp}.json"
+        archive.parent.mkdir(exist_ok=True)
+        if not archive.exists():
+            archive.write_text(json.dumps(prev, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"↳ 上一輪已歸檔 {archive.relative_to(OUT.parent.parent)}")
     OUT.write_text(json.dumps({"metrics": m, "rows": rows}, ensure_ascii=False, indent=1),
                    encoding="utf-8")
     print(f"→ {OUT}")

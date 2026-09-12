@@ -1,0 +1,33 @@
+{
+ "note": "困難基準集。建立理由：原 questions.json 的可答題是「讀著條文寫出來的」，用字與條文天然接近，dense 檢索在上面拿到 retrieval_recall@5 = 1.0——那是天花板，任何檢索改動都量不出差異。README 已自陳這個偏差，本檔是修正它。\n\n設計成三組，刻意分離 dense 與 sparse 各自擅長的能力，避免『hybrid 一定比較好』的預設：\n  colloquial（c*）：把同一條的問題改寫成一般人的講法，避開所有法條詞彙。詞彙重疊被拿掉後，考的是 dense 的語義泛化；BM25 這類詞彙匹配在這組理論上幫不上忙，甚至可能引入噪聲。\n  referential（r*）：指名法規名與條號提問。考的是精確匹配；也同時驗證 ingest.py 那個『把法規名與條號拼進被 embed 的文字』的設計到底有沒有效——那段程式有註解說明意圖，但從未被量測過。\n  unanswerable（沿用 u*/n*）：原封不動搬過來當反向對照。檢索召回變強時，近似題更容易撈到看似相關的條文、把模型推向硬答；若某個策略提升了 recall 卻讓不可答題的表現退化，那不是進步，是把風險換了個地方。\n\nexpect_label 沿用原檔的人工判定。出題方式同樣是先讀條文再改寫，不憑記憶。",
+ "cases": [
+  {"id": "c01", "variant": "colloquial", "src": "q01", "q": "銀行到底能做哪些生意？除了存錢借錢還能幹嘛？", "law": "銀行法", "expect_label": "第3條", "answerable": true},
+  {"id": "c02", "variant": "colloquial", "src": "q02", "q": "我把錢交給一家公司，他們答應以後還我本金還給利息，這種行為法律上算什麼？", "law": "銀行法", "expect_label": "第5-1條", "answerable": true},
+  {"id": "c03", "variant": "colloquial", "src": "q03", "q": "跟銀行借錢的時候，可以拿什麼東西去抵？", "law": "銀行法", "expect_label": "第12條", "answerable": true},
+  {"id": "c04", "variant": "colloquial", "src": "q04", "q": "銀行的大股東可以跟自己家銀行借錢、而且不用拿東西抵押嗎？", "law": "銀行法", "expect_label": "第32條", "answerable": true},
+  {"id": "c05", "variant": "colloquial", "src": "q05", "q": "銀行拿去做房貸跟蓋廠房的錢，總共有沒有上限？", "law": "銀行法", "expect_label": "第72-2條", "answerable": true},
+  {"id": "c06", "variant": "colloquial", "src": "q06", "q": "什麼樣的動作會被認定成洗錢？", "law": "洗錢防制法", "expect_label": "第2條", "answerable": true},
+  {"id": "c07", "variant": "colloquial", "src": "q07", "q": "銀行的往來單據要留多久才可以銷毀？", "law": "洗錢防制法", "expect_label": "第10條", "answerable": true},
+  {"id": "c08", "variant": "colloquial", "src": "q08", "q": "一次搬很多現金進出，銀行要跟哪個政府單位講？", "law": "洗錢防制法", "expect_label": "第12條", "answerable": true},
+  {"id": "c09", "variant": "colloquial", "src": "q09", "q": "業者可以叫我簽同意書、事先放棄我對自己資料的那些權利嗎？", "law": "個人資料保護法", "expect_label": "第3條", "answerable": true},
+  {"id": "c10", "variant": "colloquial", "src": "q10", "q": "當初跟我要資料的那個理由已經不存在了，公司該怎麼辦？", "law": "個人資料保護法", "expect_label": "第11條", "answerable": true},
+  {"id": "c11", "variant": "colloquial", "src": "q11", "q": "公司把我的資料弄外洩害我受損失，我告得成嗎？他們可以說自己沒疏忽就不賠嗎？", "law": "個人資料保護法", "expect_label": "第29條", "answerable": true},
+  {"id": "c12", "variant": "colloquial", "src": "q12", "q": "一般民間企業要跟客戶收集個資，要有什麼正當理由才行？", "law": "個人資料保護法", "expect_label": "第19條", "answerable": true},
+
+  {"id": "r01", "variant": "referential", "src": "q05", "q": "銀行法第72-2條是在限制什麼？", "law": "銀行法", "expect_label": "第72-2條", "answerable": true},
+  {"id": "r02", "variant": "referential", "src": "q11", "q": "個人資料保護法第29條規定的內容是什麼？", "law": "個人資料保護法", "expect_label": "第29條", "answerable": true},
+  {"id": "r03", "variant": "referential", "src": "q07", "q": "洗錢防制法第10條要求金融機構做什麼？", "law": "洗錢防制法", "expect_label": "第10條", "answerable": true},
+  {"id": "r04", "variant": "referential", "src": "q02", "q": "銀行法第5-1條下的定義是什麼？", "law": "銀行法", "expect_label": "第5-1條", "answerable": true},
+  {"id": "r05", "variant": "referential", "src": "q10", "q": "個資法第11條在講什麼？", "law": "個人資料保護法", "expect_label": "第11條", "answerable": true},
+  {"id": "r06", "variant": "referential", "src": "q04", "q": "銀行法第32條限制了哪一種授信？", "law": "銀行法", "expect_label": "第32條", "answerable": true},
+
+  {"id": "u01", "variant": "unanswerable", "q": "內線交易的刑度是幾年以下有期徒刑？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "u02", "variant": "unanswerable", "q": "勞工工作滿三年，每年特別休假有幾天？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "u03", "variant": "unanswerable", "q": "股份有限公司董事的任期最長是幾年？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "u04", "variant": "unanswerable", "q": "營利事業所得稅的稅率是多少？", "law": null, "expect_label": null, "answerable": false, "kind": "跨法域"},
+  {"id": "n01", "variant": "unanswerable", "q": "存款保險的理賠上限金額是多少？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：銀行法第46條只授權設立存款保險組織，理賠上限在存款保險條例，不在本語料"},
+  {"id": "n02", "variant": "unanswerable", "q": "銀行的最低資本額是新臺幣多少元？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：第23條只說由主管機關核定，具體金額不在條文"},
+  {"id": "n03", "variant": "unanswerable", "q": "洗錢防制法規定應申報的「一定金額」通貨交易，門檻是新臺幣多少元？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：第12條把金額授權給子法辦法，條文本身沒有數字"},
+  {"id": "n04", "variant": "unanswerable", "q": "銀行辦理住宅建築放款的利率上限是多少？", "law": null, "expect_label": null, "answerable": false, "kind": "近似題：第72-2條只限制總額比例、第47-1條的利率上限是信用卡與現金卡，兩者都不是住宅放款利率"}
+ ]
+}
