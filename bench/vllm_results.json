@@ -1,0 +1,24 @@
+{
+ "meta": {
+  "host": "Colab T4 16GB",
+  "engine": "vLLM (PagedAttention + continuous batching)",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "dtype": "float16",
+  "note": "與 M1/Ollama 端同一套量測方法；量化與硬體不同，比較的是形狀不是絕對值。",
+  "generated_at": "2026-09-12T16:50:24+0000",
+  "attention_backend": "TRITON_ATTN（T4 是 Turing / compute capability 7.5，不支援 FlashAttention 2，vLLM 自動退選）",
+  "env_fix": "Colab 預裝的 torchaudio 與 vLLM 帶進的 torch 是不同 CUDA 版本編譯的，torchaudio._extension._check_cuda_version() 會在 import 階段拋錯，vllm serve 連 server 都起不來；pip uninstall -y torchaudio 後正常。"
+ },
+ "latency": [
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "target_prompt_tokens": 0, "ttft_s_median": 0.113, "decode_tok_s_median": 36.42},
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "target_prompt_tokens": 400, "ttft_s_median": 0.097, "decode_tok_s_median": 35.24},
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "target_prompt_tokens": 1600, "ttft_s_median": 0.132, "decode_tok_s_median": 34.77},
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "target_prompt_tokens": 4000, "ttft_s_median": 0.156, "decode_tok_s_median": 32.17}
+ ],
+ "concurrency": [
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "concurrency": 1, "wall_s": 1.32, "aggregate_tok_s": 34.12, "ttft_s_median": 0.096, "ttft_s_max": 0.096},
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "concurrency": 2, "wall_s": 1.43, "aggregate_tok_s": 62.73, "ttft_s_median": 0.122, "ttft_s_max": 0.136},
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "concurrency": 4, "wall_s": 1.50, "aggregate_tok_s": 120.39, "ttft_s_median": 0.148, "ttft_s_max": 0.149},
+  {"model": "Qwen/Qwen2.5-3B-Instruct", "concurrency": 8, "wall_s": 1.60, "aggregate_tok_s": 224.37, "ttft_s_median": 0.167, "ttft_s_max": 0.169}
+ ]
+}

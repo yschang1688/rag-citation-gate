@@ -1,9 +1,13 @@
 """GPU 對照組：在 Colab T4（免費額度）上用 vLLM 跑與 M1 完全相同的量測。
 
-> 這支腳本我（Claude）**沒有執行過**，因為跑它需要你的 Google 帳號登入 Colab，
-> 而代為註冊或登入帳號不是我該做的事。程式碼與量測方法是照 `serve_bench.py`
-> 一比一對齊寫的，但**未經實跑驗證**——第一次跑很可能要修 1–2 個地方
-> （最可能是模型 repo 名稱與 vLLM 版本旗標），把錯誤訊息貼回來我來修。
+> **2026-09-13 已實跑驗證**（Colab 免費 T4，結果在 `bench/vllm_results.json`）。
+> 腳本本體不用改，但環境要先修一個東西：**Colab 預裝的 `torchaudio` 與 vLLM
+> 帶進來的 torch 是不同 CUDA 版本編譯的**，`_check_cuda_version()` 會在 import
+> 階段拋錯，`vllm serve` 連 server 都起不來。安裝完先 `pip uninstall -y torchaudio`。
+>
+> 這支腳本有一個已知弱點沒有修（留著當教材）：等待迴圈只檢查端點通不通、
+> **沒有檢查子行程是否還活著**，所以上面那個失敗是靜默的——server 早就死了，
+> 迴圈還會安靜等滿 20 分鐘。要用在別的地方時，請加上 `p.poll() is not None` 的提早跳出。
 
 ## 怎麼用
 

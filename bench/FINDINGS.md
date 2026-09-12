@@ -68,9 +68,71 @@ attention 的 O(n²) 要在序列長到讓計算量壓過固定開銷時才會�
 延遲卻線性惡化。PagedAttention + continuous batching 的價值就是讓 decode 階段
 **真正批次化**——多個請求共用同一次權重讀取，吞吐才會隨並發上升。
 
-> **面試可用的講法**：我沒有在 GPU 上跑過 vLLM，但我量到了沒有它的樣子——
-> 並發 4 的總吞吐比並發 1 還低、TTFT 惡化 51 倍。所以我知道 continuous batching
-> 解決的是哪一個具體問題，而不只是知道這個詞。
+> ~~**面試可用的講法**：我沒有在 GPU 上跑過 vLLM，但我量到了沒有它的樣子。~~
+> **2026-09-13 更新：GPU 對照組跑完了，這句話要改寫——見下一節。**
+
+## GPU 對照組：同一套量測方法，在 Colab T4 上跑 vLLM
+
+2026-09-13 在 Colab 免費額度的 Tesla T4 上跑完 `bench/colab_vllm_bench.py`
+（Qwen2.5-3B-Instruct、FP16、vLLM），量測方法與 M1 端逐字對齊。
+原始數據在 `bench/vllm_results.json`。
+
+**先講能比什麼、不能比什麼**，否則下面的數字會被讀成假的：
+
+- **不能比絕對值。** M1 側是 Q4_K_M 量化、統一記憶體（頻寬約 68 GB/s）；
+  T4 側是 FP16、獨立顯卡（約 320 GB/s）。權重位元組數差約 4 倍、頻寬差約 5 倍，
+  模型也不同（4B vs 3B）。說「vLLM 快 X 倍」是把三個變因混成一個數字。
+- **能比形狀。** 兩條曲線各自在自己的硬體上長什麼樣：並發增加時總吞吐往上還是往下、
+  TTFT 惡化多少倍。這是架構差異造成的，不是頻寬造成的。
+
+### 並發：兩邊的曲線方向相反
+
+| 並發 | M1／Ollama 吞吐 | T4／vLLM 吞吐 | M1 最差 TTFT | T4 最差 TTFT |
+|---:|---:|---:|---:|---:|
+| 1 | 14.63 | 34.12 | 0.139 s | 0.096 s |
+| 2 | 12.69 | 62.73 | 3.648 s | 0.136 s |
+| 4 | **11.75** ↓ | **120.39** ↑ | 12.913 s | 0.149 s |
+| 8 | （未測） | **224.37** ↑ | — | 0.169 s |
+
+**M1 側並發 1→4 吞吐掉了 20%，T4 側並發 1→8 吞吐上升 6.6 倍。**
+延遲那欄更誇張：M1 的最差 TTFT 惡化 93 倍（0.139 → 12.913 秒），
+T4 惡化 1.76 倍（0.096 → 0.169 秒），而且那是在並發多一倍的情況下。
+
+這就是 continuous batching 的形狀。沒有它，並發請求是排隊，每個請求各自把權重讀一遍，
+吞吐天花板不動、延遲線性惡化；有了它，多個請求在同一次前向裡共用權重讀取，
+吞吐才會隨並發爬升。**同一件事我先量到反面、再量到正面，兩張圖放在一起就是完整的論證。**
+
+### 上下文長度：兩邊都還沒進入二次方區
+
+| prompt tokens | M1 TTFT | M1 decode | T4 TTFT | T4 decode |
+|---:|---:|---:|---:|---:|
+| 0 | 0.145 s | 15.88 | 0.113 s | 36.42 |
+| 400 | 0.125 s | 15.83 | 0.097 s | 35.24 |
+| 1600 | 0.125 s | 16.20 | 0.132 s | 34.77 |
+| 4000 | 0.137 s | 15.94 | 0.156 s | 32.17 |
+
+發現一（TTFT 在數 K token 內幾乎不隨長度增長）**在 GPU 上同樣成立**——
+T4 從 0.113 到 0.156 秒，長度 4000 倍的差距只換來 1.4 倍的 TTFT，遠不是二次方。
+兩邊都還在固定開銷主導的區間，attention 的 O(n²) 要等計算量壓過固定開銷才顯現。
+decode 速度與長度無關這點也一致（T4 略降 12%，是 KV cache 變長的代價，不是量級變化）。
+
+### 踩到的坑：vLLM 在 Colab 上裝得起來、跑不起來
+
+`pip install vllm` 成功，`vllm serve` 卻連 server 都沒起來，而且**失敗是靜默的**——
+腳本的等待迴圈只看 `/v1/models` 通不通，於是安靜地等滿 20 分鐘。
+真正的錯誤在 `vllm.log` 裡：Colab 預裝的 `torchaudio` 與 vLLM 帶進來的 torch
+是不同 CUDA 版本編譯的，`torchaudio._extension._check_cuda_version()` 在
+**import 階段**就拋錯，透過 `transformers.audio_utils` 一路炸上來。
+`pip uninstall -y torchaudio` 之後正常（純文字模型用不到它）。
+
+**教訓值得單獨記**：把子行程的輸出導進檔案，等於把失敗訊息藏起來。
+等待迴圈應該同時檢查「行程還活著嗎」（`p.poll()`），而不是只檢查「端點通了嗎」——
+否則行程早就死了，你還在等它就緒。這與 §「量測本身的誠實邊界」裡
+`overhead_ms` 那條是同一類問題：**量測管線自己出錯時，要看得出來。**
+
+另外 T4 是 Turing（compute capability 7.5），不支援 FlashAttention 2，
+vLLM 自動退到 TRITON_ATTN 後端。這不是錯誤，但報告數字時要標明——
+換 Ampere 以上的卡，這組數字會再變。
 
 ## 量測本身的誠實邊界
 
@@ -82,6 +144,11 @@ attention 的 O(n²) 要在序列長到讓計算量壓過固定開銷時才會�
 - 這是單機、單一引擎、低並發的量測，**不能外推到生產叢集**。它能支持的結論是
   「這些現象在這台機器上長這樣」，不是「vLLM 能快幾倍」。
 - 樣本每格只有 3 次，中位數對抗離群值有限；並發那組只跑一輪，沒有重複。
+- **GPU 對照組的不對等要一起講**（見上一節）：量化、硬體、模型大小三個變因同時不同，
+  所以只比形狀不比絕對值。T4 側同樣是單輪、每格 3 次；vLLM 版本、
+  attention 後端（TRITON_ATTN，因 T4 不支援 FA2）都會影響數字。
+- **T4 側未測**：更高並發（16、32）——8 還沒看到吞吐轉折，真正的飽和點在哪沒有量到，
+  所以「吞吐隨並發線性上升」這句話只在 1–8 這個範圍成立，不可外推。
 
 ## 重跑
 
@@ -90,3 +157,24 @@ cd ~/rag-citation-gate
 ./.venv/bin/python bench/serve_bench.py --out bench/results.json     # 完整，約 8 分鐘
 ./.venv/bin/python bench/serve_bench.py --quick                      # 冒煙測試
 ```
+
+GPU 對照組（Colab，需要 Google 帳號）：開新筆記本 → 執行階段改 T4 GPU → 三個 cell
+
+```python
+# cell 1
+!pip install -q vllm
+!pip uninstall -y -q torchaudio   # 必要：與 vLLM 的 torch 是不同 CUDA 版本編譯的
+
+# cell 2：直接抓這個 repo 裡的腳本，避免手貼失真
+!wget -q -O cvb.py https://raw.githubusercontent.com/yschang1688/rag-citation-gate/main/bench/colab_vllm_bench.py
+import importlib.util
+spec = importlib.util.spec_from_file_location("cvb", "cvb.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+# cell 3
+exec(m.BENCH)
+```
+
+跑完 `print(open("vllm_results.json").read())` 把結果取回。
+**Colab VM 會被回收**，回收後磁碟上的 `cvb.py` 與已安裝套件都會消失，
+但筆記本的 cell 還在——重連之後要從 cell 1 重跑，不是只跑最後一格。
