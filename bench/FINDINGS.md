@@ -277,6 +277,28 @@ M1 那組與量化那節都留著同一條未測項：KV cache 記憶體佔用�
 順帶：FP16 的四格速度在三次獨立執行（三個不同 VM）逐位近似（36.42/35.24/35.31…）
 ——與本節「單獨送逐位相同」互為印證：無並發干擾時，這條管線穩得像個常數。
 
+#### 追問的下一層：temperature>0 時固定 seed，混批下還可不可重現？（SEED_PROBE）
+
+「需要隨機性又要可重現怎麼辦」的標準答案是固定 seed。依上面的機制可以寫下預測：
+**seed 固定的是抽樣的隨機數流，固定不了被抖動微移的機率分布**——同一條隨機數流
+落在移動過的抽樣邊界上，仍會選出不同 token。2026-09-14 實測
+（temperature=0.8、top_p=0.95、128 token、高熵 prompt、prefix caching 關閉）：
+
+| 條件 | 相異輸出數（8 次） |
+|---|---:|
+| 單獨送＋同 seed=42 | **1 種**（位元級可重現） |
+| 單獨送＋seed=1..8 | 8 種（seed 真的在控制隨機性） |
+| 混批＋同 seed=42（12 條雜訊並發） | **2 種** |
+
+三個預測全中。決定性的細節：混批那 2 種雜湊裡，**一種正是單獨送的那一種**——
+8 次裡多數與單獨送逐位相同，少數在第 55 個字元處走岔（故事在「古董店」那裡
+拐進了另一條支線）。同一個 seed、同一條隨機數流，被 batch 抖動推過了抽樣邊界。
+
+**工程結論補完整**：seed 保證的是「無並發干擾下」的可重現。生產環境的並發混批下，
+temperature>0 的逐字可重現**不存在**——要嘛接受它（把可重現性建在驗證層與冪等上），
+要嘛付出把請求隔離出 batch 的吞吐代價。這與 temperature=0 那條殊途同歸：
+**確定性是系統性質，不是 sampling 參數的性質。**
+
 ### 上下文長度：兩邊都還沒進入二次方區
 
 | prompt tokens | M1 TTFT | M1 decode | T4 TTFT | T4 decode |
@@ -361,6 +383,7 @@ exec(m.GPU_PROBE)          # 歸因：飽和是伺服器側還是量測客戶端
 exec(m.QUANT_DET)          # 量化 FP16 vs AWQ ＋ Temperature=0 非確定性，一次跑完
 exec(m.KV_PARSE)           # KV cache：解析留存 log ＋ P3 動態量測（/metrics 名自動探測）
 exec(m.KV_FIX)             # KV cache：P1/P2 補測（PYTHONUNBUFFERED=1 修 log 緩衝丟尾）
+exec(m.SEED_PROBE)         # temperature>0 固定 seed 在混批下的可重現性
 exec(m.DET2)               # Temperature=0 第二輪：關 prefix caching＋logprobs 量抖動與差距
 ```
 

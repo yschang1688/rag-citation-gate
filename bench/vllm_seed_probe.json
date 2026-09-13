@@ -1,0 +1,21 @@
+{
+ "meta": {
+  "host": "Colab T4 16GB",
+  "engine": "vLLM",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "temperature": 0.8, "top_p": 0.95, "max_tokens": 128, "n_rep": 8,
+  "noise_threads": 12, "prefix_caching": "disabled",
+  "prompt": "隨便說一個 1 到 100 之間的數字，然後用這個數字編一個三句話的小故事。",
+  "predictions_written_before_run": [
+   "P-s1 單獨送＋同 seed → 1 種（無抖動時 seed 位元級可重現）",
+   "P-s2 單獨送＋異 seed → 多種（驗 seed 真的在控制隨機性）",
+   "P-s3 混批＋同 seed → 多於 1 種（seed 固定抽樣 RNG、固定不了被抖動微移的分布）"],
+  "generated_at": "2026-09-14（Colab 端原檔，本地為結果副本）"
+ },
+ "s1_same_seed_isolated": {"distinct": 1, "hashes": ["33adb01b61"]},
+ "s2_diff_seed_isolated": {"distinct": 8},
+ "s3_same_seed_mixed": {"distinct": 2, "hashes": ["2dc3125987", "33adb01b61"]},
+ "s3_first_divergence_char": 55,
+ "s3_context_around_divergence": "一家古董店裡偶爾發現了一本古老的書，書上寫著一個神奇的咒語，",
+ "verdict": "三個預測全中。決定性的是 s3 的兩種雜湊之一（33adb01b61）正是 s1 單獨送的那一種——混批的 8 次裡多數與單獨送逐位相同、少數在第 55 字走岔：同一個 seed、同一條隨機數流，被 batch 造成的機率分布微移推過了抽樣邊界。結論：seed 保證的是「無並發干擾下」的可重現；有並發混批時 temperature>0 的可重現性不存在，需要確定性就得走 temperature=0＋驗證層，或把請求隔離出 batch。"
+}
