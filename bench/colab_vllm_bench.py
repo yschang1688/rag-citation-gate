@@ -961,6 +961,169 @@ with open("vllm_kv_fix.json", "w") as f:
 print("✓ 已寫入 vllm_kv_fix.json")
 '''
 
+# ============================================================
+# DET2：Temperature=0 非確定性，第二輪。
+#
+# 第一輪（QUANT_DET 內）的結果是 24 次 SHA-1 全同——但事後發現一個
+# 沒控制的變因：vLLM 預設開 prefix caching，12 次混雜請求用同一個
+# prompt，第 2 次起 prefill 很可能直接命中快取、根本沒有重算。
+# 所以第一輪真正測到的只有 decode 階段的 batch 組成，比宣稱的窄。
+#
+# 這一輪的三個升級：
+#   ① --no-enable-prefix-caching：強迫每次 prefill 真的重算、真的與
+#      不同鄰居同批。
+#   ② 輸出 64 → 512 token：argmax 翻面需要「某步 top1/top2 幾乎打平」
+#      撞上「batch 造成的數值抖動」，步數越多越容易撞上。
+#   ③ 直接量機制，不等罕見事件：帶 logprobs 回來，量兩個數——
+#      batch 造成的 Δlogprob 抖動幅度、以及 top1−top2 的最小差距。
+#      兩者一比就能解釋翻不翻，「沒觀察到」也變成可量化的結論。
+#
+# 事前預測：
+#   P-a 單獨送的 12 次應該連 logprob 都逐位相同（同批次組成＝同數值路徑）
+#   P-b 混雜送的 logprob 會出現 1e-6～1e-3 量級的抖動（機制存在的直接證據）
+#   P-c 文字翻不翻取決於「抖動 vs 最小差距」的比值；誘導題（隨機數）
+#       的最小差距天然比法條題小，若有翻面應先發生在誘導題
+# ============================================================
+DET2 = r'''
+import hashlib, json, os, random, signal, statistics, subprocess, threading, time, urllib.request
+
+PORT = 8000
+BASE = f"http://127.0.0.1:{PORT}"
+MODEL = "Qwen/Qwen2.5-3B-Instruct"
+N_REP = 12
+NOISE_THREADS = 24
+MAX_TOKENS = 512
+
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+
+PROMPTS = {
+ "legal":    FILLER * 3 + "\n\n請詳細解釋什麼是擔保授信，並逐項說明每一種擔保方式的性質與差異。",
+ "inductive": "隨便說一個 1 到 100 之間的數字，然後用這個數字編一個三句話的小故事。",
+}
+
+def noise_prompt(rnd):
+    n = rnd.choice([50, 300, 900, 2000])
+    return FILLER * max(1, n // len(FILLER)) + f"（附註 {rnd.randint(0, 99999)}）用一句話總結以上內容。"
+
+subprocess.run(["pkill", "-f", "vllm serve"]); time.sleep(10)
+ENV = dict(os.environ, PYTHONUNBUFFERED="1")
+proc = subprocess.Popen(
+    ["vllm", "serve", MODEL, "--port", str(PORT), "--dtype", "float16",
+     "--max-model-len", "8192", "--gpu-memory-utilization", "0.90",
+     "--no-enable-prefix-caching"],
+    stdout=open("vllm_det2.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid, env=ENV)
+print("啟動 server（prefix caching 已關）…")
+for i in range(900):
+    if proc.poll() is not None:
+        print(open("vllm_det2.log", errors="ignore").read()[-1500:])
+        raise SystemExit("server 啟動即掛")
+    try:
+        urllib.request.urlopen(f"{BASE}/v1/models", timeout=2); print("✓ 就緒"); break
+    except Exception: time.sleep(2)
+else:
+    raise SystemExit("逾時未就緒")
+
+def call(prompt, max_tokens, want_logprobs=False):
+    body = {"model": MODEL, "prompt": prompt, "max_tokens": max_tokens, "temperature": 0}
+    if want_logprobs: body["logprobs"] = 2
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=json.dumps(body).encode(),
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        d = json.loads(r.read())
+    ch = d["choices"][0]
+    lp = ch.get("logprobs") or {}
+    return {"text": ch.get("text", ""),
+            "token_logprobs": lp.get("token_logprobs") or [],
+            "top_logprobs": lp.get("top_logprobs") or []}
+
+def sha(t): return hashlib.sha1(t.encode()).hexdigest()[:10]
+
+def min_gap(top_logprobs):
+    gaps = []
+    for d in top_logprobs:
+        if isinstance(d, dict) and len(d) >= 2:
+            v = sorted(d.values(), reverse=True)
+            gaps.append(v[0] - v[1])
+    return (min(gaps), statistics.median(gaps)) if gaps else (None, None)
+
+def jitter_vs(base, runs):
+    """與基準逐位比 chosen-token logprob（只比文字仍相同的共同前綴）。"""
+    diffs = []
+    for r in runs:
+        n = min(len(base["token_logprobs"]), len(r["token_logprobs"]))
+        cut = n
+        if r["text"] != base["text"]:
+            for i in range(min(len(base["text"]), len(r["text"]))):
+                if base["text"][i] != r["text"][i]: break
+            cut = max(0, min(n, i // 2))   # 粗略：字元位置折半當 token 位置上限
+        for i in range(cut):
+            a, b = base["token_logprobs"][i], r["token_logprobs"][i]
+            if a is not None and b is not None:
+                diffs.append(abs(a - b))
+    if not diffs: return {"n_positions": 0}
+    return {"n_positions": len(diffs), "max_abs_dlogprob": max(diffs),
+            "median_abs_dlogprob": statistics.median(diffs),
+            "nonzero_ratio": round(sum(d > 0 for d in diffs) / len(diffs), 4)}
+
+res = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM", "model": MODEL,
+                "dtype": "float16", "prefix_caching": "disabled",
+                "n_rep": N_REP, "noise_threads": NOISE_THREADS, "max_tokens": MAX_TOKENS,
+                "round1_flaw": "第一輪未關 prefix caching，混雜條件的 prefill 可能命中快取，實際只測到 decode 階段的 batch 組成",
+                "predictions_written_before_run": [
+                 "P-a 單獨送 12 次連 logprob 都應逐位相同",
+                 "P-b 混雜送的 logprob 出現 1e-6~1e-3 量級抖動",
+                 "P-c 翻面與否取決於抖動 vs top1-top2 最小差距；若翻，先翻誘導題"],
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+       "results": {}}
+
+stop_ev = threading.Event()
+def noise(seed):
+    rnd = random.Random(seed)
+    while not stop_ev.is_set():
+        try: call(noise_prompt(rnd), 32)
+        except Exception: pass
+
+for name, prompt in PROMPTS.items():
+    print(f"\n===== {name} =====")
+    call(prompt, 8)   # warm-up
+    print("  A 單獨送 …")
+    iso = [call(prompt, MAX_TOKENS, True) for _ in range(N_REP)]
+    print("  B 混雜送（24 條雜訊並發）…")
+    ths = [threading.Thread(target=noise, args=(i,), daemon=True) for i in range(NOISE_THREADS)]
+    stop_ev.clear(); [t.start() for t in ths]; time.sleep(4)
+    mix = [call(prompt, MAX_TOKENS, True) for _ in range(N_REP)]
+    stop_ev.set(); [t.join(timeout=90) for t in ths]
+
+    base = iso[0]
+    hi, hm = sorted({sha(r["text"]) for r in iso}), sorted({sha(r["text"]) for r in mix})
+    g_min, g_med = min_gap(base["top_logprobs"])
+    row = {"isolated_distinct_texts": len(hi), "mixed_distinct_texts": len(hm),
+           "isolated_hashes": hi, "mixed_hashes": hm,
+           "gen_tokens": len(base["token_logprobs"]),
+           "jitter_within_isolated": jitter_vs(base, iso[1:]),
+           "jitter_mixed_vs_isolated": jitter_vs(base, mix),
+           "top1_top2_gap_min": g_min, "top1_top2_gap_median": g_med}
+    if len(hm) > 1 or len(hi) > 1:
+        alt = next(r for r in (mix + iso) if r["text"] != base["text"])
+        for i in range(min(len(base["text"]), len(alt["text"]))):
+            if base["text"][i] != alt["text"][i]: break
+        row["first_divergence_char"] = i
+        row["divergence_context"] = base["text"][max(0, i-20):i+10]
+    res["results"][name] = row
+    ja, jb = row["jitter_within_isolated"], row["jitter_mixed_vs_isolated"]
+    print(f"  文字：單獨 {len(hi)} 種 / 混雜 {len(hm)} 種（{row['gen_tokens']} tokens）")
+    print(f"  P-a 單獨組內抖動 max={ja.get('max_abs_dlogprob')} 非零比例={ja.get('nonzero_ratio')}")
+    print(f"  P-b 混雜對單獨抖動 max={jb.get('max_abs_dlogprob')} 中位={jb.get('median_abs_dlogprob')} 非零比例={jb.get('nonzero_ratio')}")
+    print(f"  P-c top1-top2 差距 min={g_min} 中位={g_med}")
+
+os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+with open("vllm_det2.json", "w") as f:
+    json.dump(res, f, ensure_ascii=False, indent=1)
+print("\n✓ 已寫入 vllm_det2.json")
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
