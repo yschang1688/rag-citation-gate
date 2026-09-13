@@ -1,0 +1,16 @@
+{
+ "_what": "飽和點歸因探針：在並發 192 的持續負載下同時採樣 GPU 使用率與量測客戶端的 CPU 佔用，判斷 vllm_conc_sweep.json 量到的飽和是伺服器側還是客戶端側。",
+ "concurrency": 192,
+ "hold_s": 28.2,
+ "gpu_util_median": 100.0,
+ "gpu_util_min": 69,
+ "gpu_util_max": 100,
+ "gpu_mem_used_mb_max": 13721,
+ "samples": 40,
+ "client_cpu_core_equivalent": 0.12,
+ "client_cpu_cores_available": 2,
+ "client_cpu_saturation_pct": 6.0,
+ "aggregate_tok_s": 1403.44,
+ "verdict": "GPU 中位使用率 100%、客戶端 CPU 僅佔 2 核的 6%（0.12 核）→ 伺服器吃滿，飽和點屬 vLLM 側，結論成立。",
+ "note": "持續負載下的吞吐 1403 tok/s 高於掃描時的 1268，因為掃描每格是「發 192 筆後全部等完」的批次，含爬升與收尾；探針是連續補發，佇列始終滿載。兩者量的不是同一件事，不可互換引用。"
+}

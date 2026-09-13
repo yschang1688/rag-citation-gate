@@ -1,0 +1,32 @@
+{
+ "meta": {
+  "host": "Colab T4 16GB",
+  "engine": "vLLM",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "dtype": "float16",
+  "levels": [1, 2, 4, 8, 16, 32, 64, 128, 192],
+  "rounds": 2,
+  "prompt_target_tokens": 400,
+  "max_tokens": 48,
+  "note": "找吞吐飽和點。每格兩輪取吞吐較高者，高並發單輪變異較大。1-32 與 32-192 是兩次獨立執行（各自重啟 server），並發 32 在兩次分別得到 567.58 與 570.36 tok/s，差 0.5%，可視為跨執行可複現。",
+  "generated_at": "2026-09-13T00:11:00+0800",
+  "saturation_at": 192,
+  "saturation_rule": "並發翻倍時吞吐增幅首次 < 1.2x",
+  "attribution": "已用 GPU_PROBE 驗證：並發 192 持續負載下 GPU 中位使用率 100%、客戶端 CPU 僅佔 6%，飽和點屬伺服器側而非量測客戶端。見 vllm_gpu_probe.json。"
+ },
+ "sweep": [
+  {"concurrency": 1,   "aggregate_tok_s": 33.71,   "gain_vs_prev": null, "ttft_s_median": 0.099, "ttft_s_p95": 0.099, "ttft_s_max": 0.099, "e2e_s_median": 1.334},
+  {"concurrency": 2,   "aggregate_tok_s": 62.10,   "gain_vs_prev": 1.84, "ttft_s_median": 0.125, "ttft_s_p95": 0.140, "ttft_s_max": 0.140, "e2e_s_median": 1.436},
+  {"concurrency": 4,   "aggregate_tok_s": 118.47,  "gain_vs_prev": 1.91, "ttft_s_median": 0.153, "ttft_s_p95": 0.155, "ttft_s_max": 0.155, "e2e_s_median": 1.516},
+  {"concurrency": 8,   "aggregate_tok_s": 218.57,  "gain_vs_prev": 1.84, "ttft_s_median": 0.180, "ttft_s_p95": 0.182, "ttft_s_max": 0.182, "e2e_s_median": 1.643},
+  {"concurrency": 16,  "aggregate_tok_s": 384.34,  "gain_vs_prev": 1.76, "ttft_s_median": 0.223, "ttft_s_p95": 0.227, "ttft_s_max": 0.227, "e2e_s_median": 1.866},
+  {"concurrency": 32,  "aggregate_tok_s": 567.58,  "gain_vs_prev": 1.48, "ttft_s_median": 0.325, "ttft_s_p95": 0.360, "ttft_s_max": 0.361, "e2e_s_median": 2.500},
+  {"concurrency": 64,  "aggregate_tok_s": 866.51,  "gain_vs_prev": 1.52, "ttft_s_median": 0.517, "ttft_s_p95": 0.575, "ttft_s_max": 0.578, "e2e_s_median": 3.251, "run": "second"},
+  {"concurrency": 128, "aggregate_tok_s": 1165.02, "gain_vs_prev": 1.34, "ttft_s_median": 0.947, "ttft_s_p95": 1.076, "ttft_s_max": 1.087, "e2e_s_median": 4.802, "run": "second"},
+  {"concurrency": 192, "aggregate_tok_s": 1268.54, "gain_vs_prev": 1.09, "ttft_s_median": 1.238, "ttft_s_p95": 1.400, "ttft_s_max": 1.406, "e2e_s_median": 6.633, "run": "second"}
+ ],
+ "second_run_anchor": {
+  "concurrency": 32, "aggregate_tok_s": 570.36, "ttft_s_median": 0.340,
+  "note": "第二次執行的起始格，用來與第一次的 567.58 對錨，確認兩次執行可比。"
+ }
+}
