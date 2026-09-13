@@ -751,6 +751,134 @@ with open("vllm_kv_probe.json", "w") as f:
 print("✓ 已寫入 vllm_kv_probe.json")
 '''
 
+# ============================================================
+# KV_PROBE 的救援解析：第一輪的 regex 沒對上這版 vLLM 的 log 字樣，
+# 四格 static 全拿 None。但四個 log 檔都留在磁碟上——資料沒丟，
+# 只是解析錯了，所以不用重跑 server，在 kernel 端重新解析即可。
+# 這支同時把 P3（動態量測）補掉：重啟一台 FP16@0.9，先從 /metrics
+# 全文自動探測含 cache 與 usage 的 metric 名，再做採樣——不再猜字樣。
+# 印出的每一行都先清成安全字元集，避免瀏覽器端的內容過濾把結果吃掉。
+# ============================================================
+KV_PARSE = r'''
+import json, os, re, signal, subprocess, threading, time, urllib.request
+
+PORT = 8000
+BASE = f"http://127.0.0.1:{PORT}"
+FP16 = "Qwen/Qwen2.5-3B-Instruct"
+KV_BYTES_PER_TOKEN = 36864
+
+def clean(s):
+    return re.sub(r"[^A-Za-z0-9一-鿿 :,.%x()=+\-\[\]_]", "", s)[:150]
+
+LOGS = [("FP16", 0.5, "vllm_fp16_u0.5.log"), ("FP16", 0.7, "vllm_fp16_u0.7.log"),
+        ("FP16", 0.9, "vllm_fp16_u0.9.log"), ("AWQ", 0.9, "vllm_awq_u0.9.log")]
+
+def parse(log):
+    t = open(log, errors="ignore").read()
+    kv = None; conc = None
+    for pat in (r"GPU KV cache size:\s*([\d,]+)\s*tokens",
+                r"KV cache size:\s*([\d,]+)",
+                r"kv[ _]cache[^\n]*?([\d,]{5,})\s*tokens",
+                r"([\d,]{5,})\s*tokens of KV cache"):
+        m = re.search(pat, t, re.I)
+        if m: kv = int(m.group(1).replace(",", "")); break
+    m = re.search(r"concurrency[^\d]*([\d.]+)x", t, re.I)
+    if m: conc = float(m.group(1))
+    if kv is None:
+        print(f"  [{log}] 找不到 KV 池，含 KV/cache 的行如下（清理後）：")
+        for l in t.splitlines():
+            if re.search(r"KV|kv cache|GiB|concurren", l):
+                print("   ", clean(l))
+    return kv, conc
+
+rows = []
+print("=== 靜態：從留存的 log 重新解析 ===")
+for model, util, log in LOGS:
+    if not os.path.exists(log):
+        print(f"  {log} 不存在"); rows.append({"model": model, "util": util}); continue
+    kv, conc = parse(log)
+    gb = round(kv * KV_BYTES_PER_TOKEN / 2**30, 2) if kv else None
+    rows.append({"model": model, "util": util, "kv_pool_tokens": kv,
+                 "kv_pool_gb_implied": gb, "max_concurrency_at_max_len": conc})
+    print(f"  {model} util={util} | KV 池 {kv} tokens = {gb} GB | 8K 滿載並發 {conc}x")
+
+fp = {r["util"]: r.get("kv_pool_tokens") for r in rows if r["model"] == "FP16"}
+aw = next((r.get("kv_pool_tokens") for r in rows if r["model"] == "AWQ"), None)
+p1 = ({"slope_tokens_per_0.2util_05_07": fp[0.7] - fp[0.5],
+       "slope_tokens_per_0.2util_07_09": fp[0.9] - fp[0.7]}
+      if all(fp.get(u) for u in (0.5, 0.7, 0.9)) else None)
+p2 = (aw - fp[0.9]) if (aw and fp.get(0.9)) else None
+print(f"P1 斜率：{p1}")
+print(f"P2：AWQ 池 - FP16 池 = {p2} tokens = "
+      f"{round(p2*KV_BYTES_PER_TOKEN/2**30,2) if p2 else '?'} GB（預測約 3.7 GB）")
+
+# ---- P3：重啟一台 FP16@0.9，自動探測 metric 名再動態採樣 ----
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+def make_prompt(n):
+    return FILLER * max(1, n // len(FILLER)) + "\n\n根據以上內容，用一句話說明什麼是擔保授信。"
+
+subprocess.run(["pkill", "-f", "vllm serve"]); time.sleep(10)
+proc = subprocess.Popen(
+    ["vllm", "serve", FP16, "--port", str(PORT), "--dtype", "float16",
+     "--max-model-len", "8192", "--gpu-memory-utilization", "0.9"],
+    stdout=open("vllm_p3.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+print("P3：啟動 server …")
+for i in range(900):
+    if proc.poll() is not None:
+        print(open("vllm_p3.log").read()[-1500:]); raise SystemExit("P3 server 掛了")
+    try:
+        urllib.request.urlopen(f"{BASE}/v1/models", timeout=2); print("✓ 就緒"); break
+    except Exception: time.sleep(2)
+
+met = urllib.request.urlopen(f"{BASE}/metrics", timeout=5).read().decode()
+names = sorted({m for m in re.findall(r"^([a-zA-Z_:][\w:]*)", met, re.M)
+                if "cache" in m and ("usage" in m or "perc" in m)})
+print("  metrics 候選：", [clean(n) for n in names])
+METRIC = names[0] if names else None
+
+def usage():
+    if not METRIC: return None
+    t = urllib.request.urlopen(f"{BASE}/metrics", timeout=5).read().decode()
+    v = [float(x) for x in re.findall(re.escape(METRIC) + r"\S*\s+([\d.eE+-]+)", t)]
+    return max(v) if v else None
+
+def post(prompt, n):
+    body = json.dumps({"model": FP16, "prompt": prompt, "max_tokens": n,
+                       "temperature": 0, "stream": True}).encode()
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=body,
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for _ in r: pass
+
+kv_pool = fp.get(0.9)
+dyn = []
+for target in (400, 1600, 4000):
+    peak = {"v": 0.0}
+    def watch():
+        t0 = time.time()
+        while time.time() - t0 < 30:
+            u = usage()
+            if u: peak["v"] = max(peak["v"], u)
+            time.sleep(0.25)
+    w = threading.Thread(target=watch, daemon=True); w.start()
+    post(make_prompt(target), 64); time.sleep(0.6)
+    used = round(peak["v"] * kv_pool) if (kv_pool and peak["v"]) else None
+    dyn.append({"target_prompt_tokens": target, "peak_usage": round(peak["v"], 5),
+                "implied_tokens_in_cache": used})
+    print(f"  target={target:>5} | 峰值 usage {dyn[-1]['peak_usage']} | 折算 {used} tokens")
+os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+
+out = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM",
+                "kv_bytes_per_token_theory": KV_BYTES_PER_TOKEN, "metric_used": METRIC,
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+       "static": rows, "p1_slopes": p1, "p2_awq_minus_fp16_tokens": p2, "dynamic": dyn}
+with open("vllm_kv_probe.json", "w") as f:
+    json.dump(out, f, ensure_ascii=False, indent=1)
+print("✓ 已寫入 vllm_kv_probe.json（覆蓋第一輪全 None 的版本）")
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
