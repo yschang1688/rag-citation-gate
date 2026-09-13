@@ -608,6 +608,149 @@ with open("vllm_quant_det.json", "w") as f:
 print("\n✓ 已寫入 vllm_quant_det.json")
 '''
 
+# ============================================================
+# KV cache 顯存量測：把「上下文的代價在 KV cache、不在權重」量出來。
+#
+# 上一輪（QUANT_DET）留下一個只推論、未證實的說法：FP16 與 AWQ 的
+# nvidia-smi 腳印幾乎相同，我推論是「vLLM 吃滿預算，權重省的空間變成
+# KV cache」。這一支從 vLLM 自己回報的 KV 池大小正面驗證——推論不能
+# 一直當結論用。
+#
+# 三個事前寫下的預測（Qwen2.5-3B：36 層 × 2 KV heads × 128 dim × K+V
+# × FP16 = 每 token 36,864 bytes ≈ 36 KB，由 config.json 算出）：
+#   P1 同模型，gpu-memory-utilization 0.5→0.7→0.9：KV 池 token 數應
+#      隨 util 線性增加，斜率 ≈ T4 總顯存 × 0.2 ÷ 36KB（每格約 8 萬 token）
+#   P2 同 util=0.9，AWQ 的 KV 池應比 FP16 大 ≈ 權重差（約 3.7GB）÷ 36KB
+#      ≈ 10 萬 token——這一格直接證實上輪的推論
+#   P3 動態佔用：decode 進行中 /metrics 的 gpu_cache_usage_perc × 池大小
+#      應 ≈ 該請求的 prompt+已生成 token 數（block 粒度 16 造成的誤差內）
+# ============================================================
+KV_PROBE = r'''
+import json, os, re, signal, subprocess, threading, time, urllib.request
+
+PORT = 8000
+BASE = f"http://127.0.0.1:{PORT}"
+FP16 = "Qwen/Qwen2.5-3B-Instruct"
+AWQ  = "Qwen/Qwen2.5-3B-Instruct-AWQ"
+KV_BYTES_PER_TOKEN = 36864   # 由 config.json 算出：2(K+V)×2 heads×128 dim×2 bytes×36 layers
+
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+
+def make_prompt(n):
+    return FILLER * max(1, n // len(FILLER)) + "\n\n根據以上內容，用一句話說明什麼是擔保授信。"
+
+def start(model, util, tag):
+    log = f"vllm_{tag}.log"
+    proc = subprocess.Popen(
+        ["vllm", "serve", model, "--port", str(PORT), "--dtype", "float16",
+         "--max-model-len", "8192", "--gpu-memory-utilization", str(util)],
+        stdout=open(log, "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+    print(f"啟動 {model} util={util} …")
+    for i in range(900):
+        if proc.poll() is not None:
+            print(open(log).read()[-2000:])
+            raise SystemExit(f"{tag} 啟動即掛（exit {proc.returncode}）")
+        try:
+            urllib.request.urlopen(f"{BASE}/v1/models", timeout=2)
+            print("✓ 就緒"); return proc, log
+        except Exception:
+            time.sleep(2)
+    raise SystemExit("逾時未就緒")
+
+def stop(proc):
+    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    for _ in range(90):
+        if proc.poll() is not None: break
+        time.sleep(1)
+    time.sleep(8)
+
+def kv_from_log(log):
+    """vLLM 啟動 log 會自己報 KV 池大小與最大並發，抓那兩行。"""
+    t = open(log).read()
+    m = re.search(r"GPU KV cache size:\s*([\d,]+)\s*tokens", t)
+    c = re.search(r"Maximum concurrency for\s*([\d,]+)\s*tokens per request:\s*([\d.]+)x", t)
+    return {"kv_pool_tokens": int(m.group(1).replace(",", "")) if m else None,
+            "max_concurrency_at_max_len": float(c.group(2)) if c else None}
+
+def cache_usage():
+    try:
+        t = urllib.request.urlopen(f"{BASE}/metrics", timeout=5).read().decode()
+        m = [float(x) for x in re.findall(r'vllm:gpu_cache_usage_perc\S*\s+([\d.eE+-]+)', t)]
+        return max(m) if m else None
+    except Exception:
+        return None
+
+def post(prompt, num_predict):
+    body = json.dumps({"model": CUR, "prompt": prompt, "max_tokens": num_predict,
+                       "temperature": 0, "stream": True}).encode()
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=body,
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for _ in r: pass
+
+res = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM", "dtype": "float16",
+                "kv_bytes_per_token_theory": KV_BYTES_PER_TOKEN,
+                "predictions_written_before_run": [
+                 "P1: KV 池 token 數隨 util 線性增加，每 +0.2 util ≈ +8 萬 token",
+                 "P2: 同 util=0.9，AWQ 的 KV 池比 FP16 大 ≈ 權重差 3.7GB ÷ 36KB ≈ 10 萬 token",
+                 "P3: decode 中 usage × 池大小 ≈ 該請求的 token 數（block 粒度誤差內）"],
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+       "static": [], "dynamic": []}
+
+CUR = FP16
+for util in (0.5, 0.7, 0.9):
+    p, log = start(FP16, util, f"fp16_u{util}")
+    row = {"model": "FP16", "util": util, **kv_from_log(log)}
+    row["kv_pool_gb_implied"] = (round(row["kv_pool_tokens"] * KV_BYTES_PER_TOKEN / 2**30, 2)
+                                 if row["kv_pool_tokens"] else None)
+    res["static"].append(row)
+    print(f"  FP16 util={util} | KV 池 {row['kv_pool_tokens']} tokens "
+          f"≈ {row['kv_pool_gb_implied']} GB | 8K 滿載最大並發 {row['max_concurrency_at_max_len']}x")
+    if util == 0.9:
+        # P3 動態量測：decode 進行中讀 /metrics，比對 usage×池 與請求 token 數
+        print("  動態佔用（decode 進行中採樣 /metrics）…")
+        for target in (400, 1600, 4000):
+            peak = {"v": None}
+            def watch():
+                t0 = time.time()
+                while time.time() - t0 < 30:
+                    u = cache_usage()
+                    if u is not None:
+                        peak["v"] = max(peak["v"] or 0, u)
+                    time.sleep(0.25)
+            w = threading.Thread(target=watch, daemon=True); w.start()
+            post(make_prompt(target), 64)
+            time.sleep(0.5)
+            used = (round(peak["v"] * row["kv_pool_tokens"]) if peak["v"] else None)
+            d = {"target_prompt_tokens": target, "peak_usage_perc": peak["v"],
+                 "implied_tokens_in_cache": used}
+            res["dynamic"].append(d)
+            print(f"    target={target:>5} | 峰值 usage {peak['v']} | 折算 {used} tokens")
+    stop(p)
+
+CUR = AWQ
+p, log = start(AWQ, 0.9, "awq_u0.9")
+row = {"model": "AWQ", "util": 0.9, **kv_from_log(log)}
+row["kv_pool_gb_implied"] = (round(row["kv_pool_tokens"] * KV_BYTES_PER_TOKEN / 2**30, 2)
+                             if row["kv_pool_tokens"] else None)
+res["static"].append(row)
+print(f"  AWQ  util=0.9 | KV 池 {row['kv_pool_tokens']} tokens "
+      f"≈ {row['kv_pool_gb_implied']} GB | 8K 滿載最大並發 {row['max_concurrency_at_max_len']}x")
+stop(p)
+
+fp09 = next(r for r in res["static"] if r["model"] == "FP16" and r["util"] == 0.9)
+res["p2_awq_minus_fp16_tokens"] = (row["kv_pool_tokens"] - fp09["kv_pool_tokens"]
+                                   if row["kv_pool_tokens"] and fp09["kv_pool_tokens"] else None)
+print(f"\nP2 驗證：AWQ 池 − FP16 池 = {res['p2_awq_minus_fp16_tokens']} tokens "
+      f"≈ {round(res['p2_awq_minus_fp16_tokens']*KV_BYTES_PER_TOKEN/2**30,2) if res['p2_awq_minus_fp16_tokens'] else '?'} GB（預測 ≈ 權重差 3.7GB）")
+
+with open("vllm_kv_probe.json", "w") as f:
+    json.dump(res, f, ensure_ascii=False, indent=1)
+print("✓ 已寫入 vllm_kv_probe.json")
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
