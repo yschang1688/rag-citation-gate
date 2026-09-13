@@ -879,6 +879,88 @@ with open("vllm_kv_probe.json", "w") as f:
 print("✓ 已寫入 vllm_kv_probe.json（覆蓋第一輪全 None 的版本）")
 '''
 
+# ============================================================
+# KV 探針第三輪：補 P1/P2。前兩輪的死因終於定位——不是 regex 錯，
+# 是 **stdout 緩衝**：vLLM 輸出導到檔案時是全緩衝（非 tty），SIGTERM
+# 一殺、還在緩衝裡的尾巴全丟。u0.9 與 AWQ 的 log 是 0 bytes、u0.5 只有
+# 前 12KB；p3 那份活下來只因為它跑得久、輸出量大到多次 flush。
+# 修法：子行程加 PYTHONUNBUFFERED=1，並在殺之前等 log 出現 KV 行。
+#
+# p3 的完整 log 已經把理論值驗掉一半：
+#   GPU KV cache size: 187,824 tokens；Available KV cache memory: 6.45 GiB
+#   187,824 × 36,864 bytes = 6.45 GiB ✓（36KB/token 成立，log 自己互證）
+# 這一輪只補三格：FP16@0.5、FP16@0.7、AWQ@0.9（FP16@0.9 已有 187,824）。
+# ============================================================
+KV_FIX = r'''
+import json, os, re, signal, subprocess, time, urllib.request
+
+PORT = 8000
+BASE = f"http://127.0.0.1:{PORT}"
+FP16 = "Qwen/Qwen2.5-3B-Instruct"
+AWQ  = "Qwen/Qwen2.5-3B-Instruct-AWQ"
+KV_BYTES_PER_TOKEN = 36864
+FP16_U09 = 187824   # 已由 vllm_p3.log 取得（完整 log 那一份）
+
+ENV = dict(os.environ, PYTHONUNBUFFERED="1")
+
+def grab(model, util, tag):
+    log = f"vllm_{tag}.log"
+    subprocess.run(["pkill", "-f", "vllm serve"]); time.sleep(10)
+    proc = subprocess.Popen(
+        ["vllm", "serve", model, "--port", str(PORT), "--dtype", "float16",
+         "--max-model-len", "8192", "--gpu-memory-utilization", str(util)],
+        stdout=open(log, "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid, env=ENV)
+    print(f"啟動 {model} util={util} …")
+    kv = conc = None
+    for i in range(900):
+        if proc.poll() is not None:
+            print(open(log, errors="ignore").read()[-1500:])
+            raise SystemExit(f"{tag} 啟動即掛")
+        t = open(log, errors="ignore").read()
+        m = re.search(r"GPU KV cache size:\s*([\d,]+)\s*tokens", t)
+        if m:
+            kv = int(m.group(1).replace(",", ""))
+            c = re.search(r"Maximum concurrency for\s*[\d,]+\s*tokens per request:\s*([\d.]+)x", t)
+            conc = float(c.group(1)) if c else None
+            break
+        time.sleep(2)
+    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    for _ in range(90):
+        if proc.poll() is not None: break
+        time.sleep(1)
+    time.sleep(8)
+    gb = round(kv * KV_BYTES_PER_TOKEN / 2**30, 2) if kv else None
+    print(f"  {model} util={util} | KV 池 {kv} tokens = {gb} GB | 8K 滿載並發 {conc}x")
+    return {"model": model.split("/")[-1], "util": util, "kv_pool_tokens": kv,
+            "kv_pool_gb_implied": gb, "max_concurrency_at_max_len": conc}
+
+rows = [grab(FP16, 0.5, "fix_fp16_u0.5"),
+        grab(FP16, 0.7, "fix_fp16_u0.7"),
+        {"model": "Qwen2.5-3B-Instruct", "util": 0.9, "kv_pool_tokens": FP16_U09,
+         "kv_pool_gb_implied": round(FP16_U09 * KV_BYTES_PER_TOKEN / 2**30, 2),
+         "max_concurrency_at_max_len": round(FP16_U09 / 8192, 2),
+         "source": "vllm_p3.log（前一輪的完整 log）"},
+        grab(AWQ, 0.9, "fix_awq_u0.9")]
+
+fp = {r["util"]: r["kv_pool_tokens"] for r in rows if "AWQ" not in r["model"]}
+aw = rows[-1]["kv_pool_tokens"]
+p1 = {"0.5→0.7": fp[0.7] - fp[0.5] if fp.get(0.7) and fp.get(0.5) else None,
+      "0.7→0.9": fp[0.9] - fp[0.7] if fp.get(0.9) and fp.get(0.7) else None}
+p2 = aw - fp[0.9] if aw and fp.get(0.9) else None
+print(f"\nP1 每 +0.2 util 的池增量：{p1}（預測約 8 萬 token）")
+print(f"P2 AWQ − FP16（同 0.9）：{p2} tokens = "
+      f"{round(p2 * KV_BYTES_PER_TOKEN / 2**30, 2) if p2 else '?'} GB（預測約 3.7 GB）")
+
+out = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM",
+                "kv_bytes_per_token_theory": KV_BYTES_PER_TOKEN,
+                "buffering_fix": "PYTHONUNBUFFERED=1＋殺行程前先等 log 出現 KV 行",
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")},
+       "static": rows, "p1_slopes": p1, "p2_awq_minus_fp16_tokens": p2}
+with open("vllm_kv_fix.json", "w") as f:
+    json.dump(out, f, ensure_ascii=False, indent=1)
+print("✓ 已寫入 vllm_kv_fix.json")
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
