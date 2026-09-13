@@ -1,0 +1,50 @@
+{
+ "meta": {
+  "host": "Colab T4 16GB",
+  "engine": "vLLM",
+  "dtype": "float16",
+  "fp16_model": "Qwen/Qwen2.5-3B-Instruct",
+  "awq_model": "Qwen/Qwen2.5-3B-Instruct-AWQ",
+  "prediction_written_before_run": "decode 加速理論上限 4x（位元組比），實務預期 2–3x；顯著低於 2x = 反量化開銷吃掉頻寬紅利",
+  "quality_note": "5 題回答比對是煙霧級檢查，只能說輸出有無改變，不是精度評估——精度對比仍列未測",
+  "generated_at": "2026-09-13T01:43:54+0000",
+  "local_copy_note": "本檔為 Colab 端 vllm_quant_det.json 的本地副本；answers 兩欄的完整全文只在 Colab 端檔案，此處僅保留結論與實際取回的錯誤樣本，未取回的部分不補寫。"
+ },
+ "fp16_gpu_mem_mb": 13023,
+ "awq_gpu_mem_mb": 13263,
+ "gpu_mem_note": "兩者幾乎相同不是量測錯誤——vLLM 依 gpu-memory-utilization 0.90 預先吃滿預算，權重省下的空間被拿去開更多 KV cache block，所以 nvidia-smi 腳印量不到權重差。這個旁證探針量錯了對象；權重差要看 vllm.log 的 checkpoint size。",
+ "fp16_speed": [
+  {"target_prompt_tokens": 0,    "ttft_s_median": 0.112, "decode_tok_s_median": 36.42},
+  {"target_prompt_tokens": 400,  "ttft_s_median": 0.097, "decode_tok_s_median": 35.31},
+  {"target_prompt_tokens": 1600, "ttft_s_median": 0.130, "decode_tok_s_median": 34.83},
+  {"target_prompt_tokens": 4000, "ttft_s_median": 0.156, "decode_tok_s_median": 32.15}
+ ],
+ "awq_speed": [
+  {"target_prompt_tokens": 0,    "ttft_s_median": 0.058, "decode_tok_s_median": 84.50},
+  {"target_prompt_tokens": 400,  "ttft_s_median": 0.059, "decode_tok_s_median": 83.18},
+  {"target_prompt_tokens": 1600, "ttft_s_median": 0.068, "decode_tok_s_median": 77.07},
+  {"target_prompt_tokens": 4000, "ttft_s_median": 0.088, "decode_tok_s_median": 67.44}
+ ],
+ "comparison": [
+  {"target_prompt_tokens": 0,    "decode_speedup": 2.32, "ttft_ratio": 0.52},
+  {"target_prompt_tokens": 400,  "decode_speedup": 2.36, "ttft_ratio": 0.61},
+  {"target_prompt_tokens": 1600, "decode_speedup": 2.21, "ttft_ratio": 0.52},
+  {"target_prompt_tokens": 4000, "decode_speedup": 2.10, "ttft_ratio": 0.56}
+ ],
+ "answers_identical": "0/5",
+ "answers_error_samples": {
+  "fp16": ["「劍產抵押權」（動產之誤）", "「勞動產質權」（憑空拆出的詞）", "第三題整段切換成簡體中文"],
+  "awq":  ["「劍產」（動產之誤）", "「結合政府核准設立」（經政府核准之誤）"],
+  "reading": "FP16 與 AWQ 都有字級錯誤，且 FP16 的清單題看起來更糊——差異是瀰漫性的，這個煙霧檢查無法把退化歸因給量化。要下精度結論需要評估集。"
+ },
+ "determinism": {
+  "n_rep": 12,
+  "noise_threads": 6,
+  "isolated_distinct": 1,
+  "mixed_distinct": 1,
+  "isolated_hashes": ["76402a8fae"],
+  "mixed_hashes": ["76402a8fae"],
+  "divergent_output_example": null,
+  "reading": "temperature=0 下，單獨送與混在 6 條雜訊並發裡送，24 次輸出雜湊完全相同。此組合（vLLM 此版、3B、64 token、12+12 次）觀察不到 batch 組成造成的非確定性；這不推翻其存在，只標定了觀察不到的邊界。"
+ }
+}
