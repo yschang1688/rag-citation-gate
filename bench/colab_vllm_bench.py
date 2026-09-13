@@ -1130,6 +1130,122 @@ with open("vllm_det2.json", "w") as f:
 print("\n✓ 已寫入 vllm_det2.json")
 '''
 
+# ============================================================
+# SEED_PROBE：temperature>0 時，固定 seed 在混批下還可不可重現？
+#
+# DET2 的自然追問：「需要隨機性又要可重現怎麼辦？」標準答案是固定 seed。
+# 但依 DET2 的機制（batch 組成造成 logprob 抖動），可以寫下一個預測：
+# seed 固定的是「抽樣的隨機數流」，固定不了「被抽樣的機率分布」——
+# 混批下分布被抖動微移，同一條隨機數流落在不同的抽樣邊界上，
+# 仍可能選出不同 token。
+#
+# 三個事前預測：
+#   P-s1 單獨送＋同 seed ×8 → 1 種輸出（無並發抖動時 seed 完全可重現）
+#   P-s2 單獨送＋不同 seed ×8 → 多種輸出（驗 seed 真的在控制隨機性）
+#   P-s3 混批＋同 seed ×8 → 多於 1 種（seed 擋不住數值抖動）
+# 若 P-s3 只有 1 種：在此雜訊強度下抽樣邊界未被跨越——邊界照量照報。
+# ============================================================
+SEED_PROBE = r'''
+import hashlib, json, os, random, signal, subprocess, threading, time, urllib.request
+
+PORT = 8000
+BASE = f"http://127.0.0.1:{PORT}"
+MODEL = "Qwen/Qwen2.5-3B-Instruct"
+N = 8
+NOISE_THREADS = 12
+PROMPT = "隨便說一個 1 到 100 之間的數字，然後用這個數字編一個三句話的小故事。"
+
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+
+def noise_prompt(rnd):
+    n = rnd.choice([50, 300, 900, 2000])
+    return FILLER * max(1, n // len(FILLER)) + f"（附註 {rnd.randint(0, 99999)}）用一句話總結以上內容。"
+
+subprocess.run(["pkill", "-f", "vllm serve"]); time.sleep(10)
+ENV = dict(os.environ, PYTHONUNBUFFERED="1")
+proc = subprocess.Popen(
+    ["vllm", "serve", MODEL, "--port", str(PORT), "--dtype", "float16",
+     "--max-model-len", "8192", "--gpu-memory-utilization", "0.90",
+     "--no-enable-prefix-caching"],
+    stdout=open("vllm_seed.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid, env=ENV)
+print("啟動 server（prefix caching 已關）…")
+for i in range(900):
+    if proc.poll() is not None:
+        print(open("vllm_seed.log", errors="ignore").read()[-1500:])
+        raise SystemExit("server 啟動即掛")
+    try:
+        urllib.request.urlopen(f"{BASE}/v1/models", timeout=2); print("OK 就緒"); break
+    except Exception: time.sleep(2)
+else:
+    raise SystemExit("逾時未就緒")
+
+def call(prompt, seed, max_tokens=128):
+    body = {"model": MODEL, "prompt": prompt, "max_tokens": max_tokens,
+            "temperature": 0.8, "top_p": 0.95, "seed": seed}
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=json.dumps(body).encode(),
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        return json.loads(r.read())["choices"][0].get("text", "")
+
+def sha(t): return hashlib.sha1(t.encode()).hexdigest()[:10]
+
+def distinct(texts): return sorted({sha(t) for t in texts})
+
+call(PROMPT, 0, 8)   # warm-up
+res = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM", "model": MODEL,
+                "temperature": 0.8, "top_p": 0.95, "n_rep": N, "noise_threads": NOISE_THREADS,
+                "prefix_caching": "disabled",
+                "predictions_written_before_run": [
+                 "P-s1 單獨送＋同 seed → 1 種", "P-s2 單獨送＋不同 seed → 多種",
+                 "P-s3 混批＋同 seed → 多於 1 種（seed 擋不住數值抖動）"],
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}}
+
+print("P-s1 單獨送＋同 seed=42 …")
+a = []
+for i in range(N):
+    a.append(call(PROMPT, 42)); print(f"s1-{i+1}", end=" ", flush=True)
+print()
+print("P-s2 單獨送＋seed=1..8 …")
+b = []
+for i in range(N):
+    b.append(call(PROMPT, i + 1)); print(f"s2-{i+1}", end=" ", flush=True)
+print()
+print("P-s3 混批＋同 seed=42（12 條雜訊並發）…")
+stop_ev = threading.Event()
+def noise(sd):
+    rnd = random.Random(sd)
+    while not stop_ev.is_set():
+        try: call(noise_prompt(rnd), None, 32)
+        except Exception: pass
+ths = [threading.Thread(target=noise, args=(i,), daemon=True) for i in range(NOISE_THREADS)]
+[t.start() for t in ths]; time.sleep(4)
+c = []
+for i in range(N):
+    c.append(call(PROMPT, 42)); print(f"s3-{i+1}", end=" ", flush=True)
+print()
+stop_ev.set(); [t.join(timeout=90) for t in ths]
+
+res["s1_same_seed_isolated"] = {"distinct": len(distinct(a)), "hashes": distinct(a)}
+res["s2_diff_seed_isolated"] = {"distinct": len(distinct(b)), "hashes": distinct(b)}
+res["s3_same_seed_mixed"]    = {"distinct": len(distinct(c)), "hashes": distinct(c)}
+if len(distinct(c)) > 1:
+    base = c[0]
+    alt = next(x for x in c if x != base)
+    k = next((i for i in range(min(len(base), len(alt))) if base[i] != alt[i]), -1)
+    res["s3_first_divergence_char"] = k
+    res["s3_context"] = base[max(0, k-20):k+10]
+print(f"\nP-s1 同seed單獨: {res['s1_same_seed_isolated']['distinct']} 種"
+      f" | P-s2 異seed單獨: {res['s2_diff_seed_isolated']['distinct']} 種"
+      f" | P-s3 同seed混批: {res['s3_same_seed_mixed']['distinct']} 種")
+
+os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+with open("vllm_seed_probe.json", "w") as f:
+    json.dump(res, f, ensure_ascii=False, indent=1)
+print("OK 已寫入 vllm_seed_probe.json")
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
