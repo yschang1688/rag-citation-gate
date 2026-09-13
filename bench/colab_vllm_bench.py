@@ -419,6 +419,195 @@ if proc is not None:
     os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
 '''
 
+# ============================================================
+# 量化對比 ＋ Temperature=0 非確定性：一次 exec 全自動跑完兩個實驗。
+#
+# ① 量化（FP16 vs AWQ 4-bit，同一張 T4、同一套量測）
+#    有一個事前寫下的可證偽預測：decode 是 memory-bound（M1 那組的發現二），
+#    所以 4-bit 的 decode 加速「理論上限」是位元組比 4 倍，實務預期 2–3 倍
+#    （反量化開銷＋activation 仍是 FP16 要吃頻寬）。
+#    - 顯著低於 2 倍 → 反量化開銷吃掉頻寬紅利，這本身就是發現
+#    - 接近甚至超過 4 倍 → 量測有問題，先懷疑自己
+#    順帶記兩個旁證：兩模型就緒後的顯存佔用（權重腳印）、以及 5 題
+#    temperature=0 的回答是否逐字相同（**煙霧級**品質檢查——只能說
+#    「輸出有沒有變」，不能說「精度掉多少」，那需要評估集，仍列未測）。
+#
+# ② Temperature=0 非確定性（演練包第二關目前是純理論句，補一手數據）
+#    同一 prompt、temperature=0、各 12 次：
+#    A 條件「單獨送」（無其他負載）vs B 條件「混在雜訊並發裡送」
+#    （6 條背景執行緒打長短不一的隨機 prompt，讓目標請求每次和
+#    不同鄰居被 batch 在一起）。比對輸出雜湊的相異數。
+#    預測：A 應該 1 種；B 若 >1 種，「batch 組成影響輸出」就從轉述變實測。
+#    B 若也是 1 種，結論是「此規模觀察不到」——邊界也是收穫。
+# ============================================================
+QUANT_DET = r'''
+import hashlib, json, os, random, signal, statistics, subprocess, threading, time, urllib.request
+
+PORT = 8000
+BASE = f"http://127.0.0.1:{PORT}"
+FP16 = "Qwen/Qwen2.5-3B-Instruct"
+AWQ  = "Qwen/Qwen2.5-3B-Instruct-AWQ"
+
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+QUESTION = "\n\n根據以上內容，用一句話說明什麼是擔保授信。"
+
+def make_prompt(n):
+    if n <= 0: return QUESTION.strip()
+    return FILLER * max(1, n // len(FILLER)) + QUESTION
+
+def gpu_mem_mb():
+    try:
+        o = subprocess.run(["nvidia-smi", "--query-gpu=memory.used",
+                            "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=5).stdout.strip()
+        return int(o)
+    except Exception:
+        return None
+
+def start(model):
+    proc = subprocess.Popen(
+        ["vllm", "serve", model, "--port", str(PORT), "--dtype", "float16",
+         "--max-model-len", "8192", "--gpu-memory-utilization", "0.90"],
+        stdout=open("vllm.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+    print(f"啟動 {model} …")
+    for i in range(900):
+        if proc.poll() is not None:
+            print(open("vllm.log").read()[-2500:])
+            raise SystemExit(f"{model} 啟動即掛（exit {proc.returncode}）")
+        try:
+            urllib.request.urlopen(f"{BASE}/v1/models", timeout=2)
+            print("✓ 就緒"); return proc
+        except Exception:
+            time.sleep(2)
+    raise SystemExit("逾時未就緒")
+
+def stop(proc):
+    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    for _ in range(90):
+        if proc.poll() is not None: break
+        time.sleep(1)
+    time.sleep(8)   # 等顯存真的還回來再起下一個
+
+def post_stream(prompt, num_predict):
+    body = json.dumps({"model": CUR, "prompt": prompt, "max_tokens": num_predict,
+                       "temperature": 0, "stream": True}).encode()
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=body,
+                                 headers={"content-type": "application/json"})
+    t0 = time.perf_counter(); ttft = None; n = 0; parts = []
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for raw in r:
+            line = raw.decode().strip()
+            if not line.startswith("data:"): continue
+            payload = line[5:].strip()
+            if payload == "[DONE]": break
+            try: txt = json.loads(payload)["choices"][0].get("text", "")
+            except Exception: continue
+            if txt:
+                if ttft is None: ttft = time.perf_counter() - t0
+                n += 1; parts.append(txt)
+    return (ttft or time.perf_counter() - t0), time.perf_counter() - t0, n, "".join(parts)
+
+def speed():
+    rows = []
+    for target in [0, 400, 1600, 4000]:
+        p = make_prompt(target)
+        post_stream(p, 8)                                    # warm-up
+        s = [post_stream(p, 64) for _ in range(3)]
+        tps = [(x[2] - 1) / (x[1] - x[0]) if x[1] > x[0] and x[2] > 1 else 0 for x in s]
+        rows.append({"target_prompt_tokens": target,
+                     "ttft_s_median": round(statistics.median(x[0] for x in s), 3),
+                     "decode_tok_s_median": round(statistics.median(tps), 2)})
+        print(f"  target={target:>5} | TTFT {rows[-1]['ttft_s_median']:>6.3f}s "
+              f"| decode {rows[-1]['decode_tok_s_median']:>6.2f} tok/s")
+    return rows
+
+QUALITY_QS = ["根據以上內容，用一句話說明什麼是擔保授信。",
+              "根據以上內容，列出可作為擔保的項目。",
+              "根據以上內容，誰可以擔任保證機構？",
+              "根據以上內容，應收票據要符合什麼條件才能當擔保？",
+              "根據以上內容，動產可以用哪些方式設定擔保？"]
+
+def answers():
+    out = {}
+    for q in QUALITY_QS:
+        out[q] = post_stream(FILLER + "\n\n" + q, 96)[3]
+    return out
+
+def determinism(n_rep=12, noise_threads=6):
+    prompt = make_prompt(400)
+    print("  A 條件：單獨送（無其他負載）…")
+    iso = [post_stream(prompt, 64)[3] for _ in range(n_rep)]
+    print("  B 條件：混在雜訊並發裡送…")
+    stop_ev = threading.Event()
+    def noise(seed):
+        rnd = random.Random(seed)
+        while not stop_ev.is_set():
+            n = rnd.choice([50, 300, 900, 2000])
+            try: post_stream(make_prompt(n) + f"（附註 {rnd.randint(0, 9999)}）", 32)
+            except Exception: pass
+    ths = [threading.Thread(target=noise, args=(i,), daemon=True) for i in range(noise_threads)]
+    [t.start() for t in ths]
+    time.sleep(3)
+    mix = [post_stream(prompt, 64)[3] for _ in range(n_rep)]
+    stop_ev.set(); [t.join(timeout=60) for t in ths]
+    h = lambda x: hashlib.sha1(x.encode()).hexdigest()[:10]
+    hi, hm = sorted({h(x) for x in iso}), sorted({h(x) for x in mix})
+    div = next((x for x in mix if h(x) != h(iso[0])), None)
+    return {"n_rep": n_rep, "noise_threads": noise_threads,
+            "isolated_distinct": len(hi), "mixed_distinct": len(hm),
+            "isolated_hashes": hi, "mixed_hashes": hm,
+            "baseline_output": iso[0],
+            "divergent_output_example": div}
+
+res = {"meta": {"host": "Colab T4 16GB", "engine": "vLLM", "dtype": "float16",
+                "fp16_model": FP16, "awq_model": AWQ,
+                "prediction_written_before_run": "decode 加速理論上限 4x（位元組比），實務預期 2–3x；顯著低於 2x = 反量化開銷吃掉頻寬紅利",
+                "quality_note": "5 題回答比對是煙霧級檢查，只能說輸出有無改變，不是精度評估——精度對比仍列未測",
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}}
+
+CUR = FP16
+p = start(FP16)
+res["fp16_gpu_mem_mb"] = gpu_mem_mb()
+print(f"\n=== FP16 速度（顯存 {res['fp16_gpu_mem_mb']} MB）===")
+res["fp16_speed"] = speed()
+print("\n=== Temperature=0 非確定性（FP16 server 上直接做）===")
+res["determinism"] = determinism()
+d = res["determinism"]
+print(f"  單獨送：{d['isolated_distinct']} 種輸出；混雜送：{d['mixed_distinct']} 種輸出")
+res["fp16_answers"] = answers()
+stop(p)
+
+CUR = AWQ
+p = start(AWQ)
+res["awq_gpu_mem_mb"] = gpu_mem_mb()
+print(f"\n=== AWQ 速度（顯存 {res['awq_gpu_mem_mb']} MB）===")
+res["awq_speed"] = speed()
+res["awq_answers"] = answers()
+stop(p)
+
+print("\n=== 量化對比 ===")
+cmp_rows = []
+for a, b in zip(res["fp16_speed"], res["awq_speed"]):
+    r = {"target_prompt_tokens": a["target_prompt_tokens"],
+         "decode_speedup": round(b["decode_tok_s_median"] / a["decode_tok_s_median"], 2)
+                           if a["decode_tok_s_median"] else None,
+         "ttft_ratio": round(b["ttft_s_median"] / a["ttft_s_median"], 2)
+                       if a["ttft_s_median"] else None}
+    cmp_rows.append(r)
+    print(f"  target={r['target_prompt_tokens']:>5} | decode 加速 x{r['decode_speedup']} | TTFT 比 x{r['ttft_ratio']}")
+res["comparison"] = cmp_rows
+same = sum(res["fp16_answers"][q] == res["awq_answers"][q] for q in QUALITY_QS)
+res["answers_identical"] = f"{same}/{len(QUALITY_QS)}"
+print(f"  5 題 temperature=0 回答逐字相同：{res['answers_identical']}")
+print(f"  顯存腳印：FP16 {res['fp16_gpu_mem_mb']} MB vs AWQ {res['awq_gpu_mem_mb']} MB")
+
+with open("vllm_quant_det.json", "w") as f:
+    json.dump(res, f, ensure_ascii=False, indent=1)
+print("\n✓ 已寫入 vllm_quant_det.json")
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
