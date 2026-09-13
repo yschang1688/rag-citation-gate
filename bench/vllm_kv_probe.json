@@ -1,0 +1,31 @@
+{
+ "meta": {
+  "host": "Colab T4 16GB（總顯存 15,360 MB）",
+  "engine": "vLLM",
+  "dtype": "float16",
+  "fp16_model": "Qwen/Qwen2.5-3B-Instruct",
+  "awq_model": "Qwen/Qwen2.5-3B-Instruct-AWQ",
+  "kv_bytes_per_token_theory": 36864,
+  "kv_theory_derivation": "36 層 × 2 KV heads × 128 head_dim × (K+V) × 2 bytes(FP16)＝36,864 bytes/token，由 config.json 算出、實驗前寫定",
+  "metric_used_for_dynamic": "vllm:kv_cache_usage_perc",
+  "buffering_lesson": "vLLM 輸出導到檔案是全緩衝（非 tty），SIGTERM 殺行程會丟掉緩衝裡的 log 尾巴——兩份 log 0 bytes、一份只剩前 12KB，唯一完整的是跑得久、flush 多次那份。修法：PYTHONUNBUFFERED=1＋殺之前先等 KV 行出現。",
+  "generated_at": "2026-09-13T02:55:00+0000"
+ },
+ "static": [
+  {"model": "FP16", "util": 0.5, "kv_pool_tokens": 18144,  "kv_pool_gb_implied": 0.62,  "max_concurrency_at_8k": 2.21},
+  {"model": "FP16", "util": 0.7, "kv_pool_tokens": 102992, "kv_pool_gb_implied": 3.54,  "max_concurrency_at_8k": 12.57},
+  {"model": "FP16", "util": 0.9, "kv_pool_tokens": 187824, "kv_pool_gb_implied": 6.45,  "max_concurrency_at_8k": 22.93, "source": "vllm_p3.log，該 log 同時自報 Available KV cache memory: 6.45 GiB，與 187,824×36,864B 互證"},
+  {"model": "AWQ",  "util": 0.9, "kv_pool_tokens": 297968, "kv_pool_gb_implied": 10.23, "max_concurrency_at_8k": 36.37}
+ ],
+ "p1_util_slopes_tokens_per_0.2": {"0.5→0.7": 84848, "0.7→0.9": 84832,
+  "reading": "兩段斜率只差 16 個 token（一個 block），線性成立；理論斜率 0.2×15.36GB÷36KB≈89,400，實測低約 5%（CUDA graph 等固定佔用隨 util 略增）。權重是固定截距、彈性全在 KV cache。"},
+ "p2_awq_minus_fp16_tokens": 110144,
+ "p2_reading": "AWQ 池 − FP16 池 = 110,144 tokens = 3.78 GB，與權重差預測（約 3.7 GB）吻合——正式證實 QUANT_DET 那輪的推論：量化省下的權重空間被 vLLM 一比一轉成 KV cache。",
+ "dynamic": [
+  {"target_prompt_tokens": 400,  "peak_usage": 0.00204, "implied_tokens_in_cache": 383},
+  {"target_prompt_tokens": 1600, "peak_usage": 0.00673, "implied_tokens_in_cache": 1264},
+  {"target_prompt_tokens": 4000, "peak_usage": 0.01636, "implied_tokens_in_cache": 3073}
+ ],
+ "dynamic_reading": "usage × 池大小 ≈ 實際 prompt tokens＋生成 64（target 是字元估計、實際 tokenizer 產出較少：target 4000 實測約 2,866 prompt tokens → 折算 3,073 ≈ 2,866＋64＋block 16 取整），P3 成立。",
+ "verdict": "三個事前預測（P1 線性、P2 量化差額轉 KV、P3 動態佔用對帳）全部命中；36KB/token 理論值由 log 自報的 GiB 數互證。"
+}
