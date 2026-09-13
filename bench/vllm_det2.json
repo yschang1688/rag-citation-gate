@@ -1,0 +1,48 @@
+{
+ "meta": {
+  "host": "Colab T4 16GB",
+  "engine": "vLLM",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "dtype": "float16",
+  "prefix_caching": "disabled（--no-enable-prefix-caching）",
+  "n_rep": 10,
+  "noise_threads": 12,
+  "max_tokens": 320,
+  "round1_flaw": "第一輪未關 prefix caching：同 prompt 的混雜請求從第 2 次起 prefill 可能直接命中快取，實際只測到 decode 階段的 batch 組成——本輪關閉後立即觀察到翻面，證實該混淆是實質的",
+  "predictions_written_before_run": [
+   "P-a 單獨送的重複連 logprob 都應逐位相同",
+   "P-b 混雜送的 logprob 出現 1e-6~1e-3 量級抖動",
+   "P-c 翻面與否取決於抖動 vs top1-top2 最小差距；若翻先翻誘導題"
+  ],
+  "generated_at": "2026-09-13T05:20:00+0000"
+ },
+ "results": {
+  "legal": {
+   "isolated_distinct_texts": 1,
+   "mixed_distinct_texts": 2,
+   "isolated_hashes": ["24a2da0bbb"],
+   "mixed_hashes": ["24a2da0bbb", "2ee173e96e"],
+   "gen_tokens": 320,
+   "jitter_within_isolated": {"n_positions": 2880, "max_abs_dlogprob": 0.0, "median_abs_dlogprob": 0.0, "nonzero_ratio": 0.0},
+   "jitter_mixed_vs_isolated": {"n_positions": 2748, "max_abs_dlogprob": 0.017734885215759277, "median_abs_dlogprob": 0.00022999010980129242, "nonzero_ratio": 0.9913},
+   "top1_top2_gap_min": 0.015625,
+   "top1_top2_gap_median": 2.531249910593033,
+   "first_divergence_char": 188,
+   "divergence_context": "但抵押物的所有權仍屬於借款人。\\n\\n2. 劃產或權利質權：這是"
+  },
+  "inductive": {
+   "isolated_distinct_texts": 1,
+   "mixed_distinct_texts": 2,
+   "isolated_hashes": ["75ebe06623"],
+   "mixed_hashes": ["75ebe06623", "c83942bb68"],
+   "gen_tokens": 92,
+   "jitter_within_isolated": {"n_positions": 828, "max_abs_dlogprob": 0.0, "median_abs_dlogprob": 0.0, "nonzero_ratio": 0.0},
+   "jitter_mixed_vs_isolated": {"n_positions": 707, "max_abs_dlogprob": 0.01537477970123291, "median_abs_dlogprob": 0.0009991228580474854, "nonzero_ratio": 0.9844},
+   "top1_top2_gap_min": 0.0,
+   "top1_top2_gap_median": 1.140625,
+   "first_divergence_char": 43,
+   "divergence_context": "空，有一個名叫阿爾法的星球，那裡的居民都對數字42充滿了好奇"
+  }
+ },
+ "verdict": "三個預測全部命中：P-a 單獨送 10 次連 2,880 個 logprob 位置都逐位為零差（batch 組成相同＝數值路徑相同）；P-b 混雜送 99% 位置的 logprob 出現抖動（中位 1e-4、最大 1.8e-2）；P-c 兩題都翻面——legal 的最大抖動 0.0177 大於其最小差距 0.0156，inductive 有差距為 0 的完全平手位置。機制完整：非確定性=數值抖動（必然發生）×近平手位置（偶然存在），兩者相乘才翻面。"
+}
