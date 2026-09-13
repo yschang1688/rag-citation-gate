@@ -276,6 +276,149 @@ if proc is not None:
     os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
 '''
 
+# ============================================================
+# 歸因探針：那個飽和點是伺服器的，還是我自己的客戶端的？
+#
+# CONC_SWEEP 在並發 192 量到吞吐增幅掉到 1.09，看起來是飽和。
+# 但壓力是用 192 條 Python 執行緒打出去的，每條都在解析 SSE 事件流，
+# **而 GIL 會把那些解析序列化**。如果客戶端才是瓶頸，量到的「飽和」
+# 就是我自己的量測工具的極限，跟 vLLM 無關——這種結論會很體面地錯下去。
+#
+# 判準（在持續高並發負載下同時採樣兩邊）：
+#   GPU 使用率貼近 100%  → 伺服器真的吃滿了，飽和點成立
+#   GPU 使用率明顯偏低   → 瓶頸在客戶端，那個數字不能當 vLLM 的上限報
+#
+# 這支與 completion-gate 的「量測管線自己要被驗證」是同一件事：
+# 先證明工具沒有先壞掉，才有資格解讀它吐出來的數字。
+# ============================================================
+GPU_PROBE = r'''
+import json, os, signal, statistics, subprocess, threading, time, urllib.request
+
+MODEL = "Qwen/Qwen2.5-3B-Instruct"
+PORT  = 8000
+BASE  = f"http://127.0.0.1:{PORT}"
+CONC  = 192
+HOLD_S = 25
+
+FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
+          "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
+          "各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。")
+PROMPT = FILLER * max(1, 400 // len(FILLER)) + "\n\n根據以上內容，用一句話說明什麼是擔保授信。"
+
+def server_up():
+    try:
+        urllib.request.urlopen(f"{BASE}/v1/models", timeout=2); return True
+    except Exception:
+        return False
+
+proc = None
+if server_up():
+    print("✓ 沿用既有 server")
+else:
+    proc = subprocess.Popen(
+        ["vllm", "serve", MODEL, "--port", str(PORT), "--dtype", "float16",
+         "--max-model-len", "8192", "--gpu-memory-utilization", "0.90"],
+        stdout=open("vllm.log", "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid)
+    print("啟動 server…")
+    for i in range(600):
+        if proc.poll() is not None:
+            print(open("vllm.log").read()[-2000:])
+            raise SystemExit(f"server 啟動即掛（exit {proc.returncode}）")
+        if server_up():
+            print("✓ 就緒"); break
+        time.sleep(2)
+    else:
+        raise SystemExit("server 逾時未就緒")
+
+def one_request():
+    body = json.dumps({"model": MODEL, "prompt": PROMPT, "max_tokens": 48,
+                       "temperature": 0, "stream": True}).encode()
+    req = urllib.request.Request(f"{BASE}/v1/completions", data=body,
+                                 headers={"content-type": "application/json"})
+    n = 0
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for raw in r:
+            line = raw.decode().strip()
+            if line.startswith("data:") and line[5:].strip() != "[DONE]":
+                n += 1
+    return n
+
+stop = threading.Event()
+counts = []
+clock = threading.Lock()
+
+def loader():
+    local = 0
+    while not stop.is_set():
+        try: local += one_request()
+        except Exception: pass
+    with clock: counts.append(local)
+
+def cpu_ticks():
+    # 本行程與所有子執行緒累計的 CPU 時間（utime+stime），單位是 clock tick
+    with open("/proc/self/stat") as f:
+        p = f.read().split()
+    return int(p[13]) + int(p[14])
+
+def gpu_util():
+    try:
+        o = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used",
+                            "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=5).stdout.strip()
+        a, b = o.split(",")
+        return int(a), int(b)
+    except Exception:
+        return None, None
+
+one_request()  # warm-up
+ths = [threading.Thread(target=loader, daemon=True) for _ in range(CONC)]
+print(f"\n持續打 {CONC} 並發 {HOLD_S} 秒，同時採樣 GPU 與客戶端 CPU…")
+t0 = time.perf_counter(); c0 = cpu_ticks()
+[t.start() for t in ths]
+utils, mems = [], []
+time.sleep(3)  # 先讓佇列填滿再採樣，避免把爬升期算進去
+while time.perf_counter() - t0 < HOLD_S:
+    u, mb = gpu_util()
+    if u is not None: utils.append(u); mems.append(mb)
+    time.sleep(0.5)
+stop.set()
+[t.join(timeout=60) for t in ths]
+wall = time.perf_counter() - t0
+cpu_s = (cpu_ticks() - c0) / os.sysconf("SC_CLK_TCK")
+
+ncpu = os.cpu_count()
+res = {"concurrency": CONC, "hold_s": round(wall, 1),
+       "gpu_util_median": statistics.median(utils) if utils else None,
+       "gpu_util_min": min(utils) if utils else None,
+       "gpu_util_max": max(utils) if utils else None,
+       "gpu_mem_used_mb_max": max(mems) if mems else None,
+       "samples": len(utils),
+       "client_cpu_core_equivalent": round(cpu_s / wall, 2),
+       "client_cpu_cores_available": ncpu,
+       "client_cpu_saturation_pct": round(100 * (cpu_s / wall) / ncpu, 1),
+       "aggregate_tok_s": round(sum(counts) / wall, 2)}
+
+print(json.dumps(res, ensure_ascii=False, indent=1))
+gm = res["gpu_util_median"]
+cc = res["client_cpu_core_equivalent"]
+print()
+if gm is not None and gm >= 90:
+    print(f"→ GPU 中位使用率 {gm}%：**伺服器吃滿了**，飽和點是 vLLM 這側的，結論成立。")
+elif gm is not None and cc >= 0.9 * ncpu:
+    print(f"→ GPU 只有 {gm}% 而客戶端 CPU 已佔滿 {cc}/{ncpu} 核："
+          f"**瓶頸在量測客戶端，不是 vLLM**。那個飽和點不能當伺服器上限報。")
+else:
+    print(f"→ GPU {gm}%、客戶端 {cc}/{ncpu} 核：兩邊都沒吃滿，瓶頸可能在單請求的往返延遲，"
+          f"需要再查（例如連線數上限或 HTTP keep-alive）。")
+
+with open("vllm_gpu_probe.json", "w") as f:
+    json.dump(res, f, ensure_ascii=False, indent=1)
+print("✓ 已寫入 vllm_gpu_probe.json")
+
+if proc is not None:
+    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+'''
+
 if __name__ == "__main__":
     print(__doc__)
     print("=" * 60)
@@ -287,3 +430,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print("Cell 3（並發飽和點掃描）：")
     print(CONC_SWEEP)
+    print("=" * 60)
+    print("Cell 4（飽和點歸因探針：GPU 還是客戶端？）：")
+    print(GPU_PROBE)
