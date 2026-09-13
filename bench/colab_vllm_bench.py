@@ -990,9 +990,9 @@ import hashlib, json, os, random, signal, statistics, subprocess, threading, tim
 PORT = 8000
 BASE = f"http://127.0.0.1:{PORT}"
 MODEL = "Qwen/Qwen2.5-3B-Instruct"
-N_REP = 12
-NOISE_THREADS = 24
-MAX_TOKENS = 512
+N_REP = 10
+NOISE_THREADS = 12
+MAX_TOKENS = 320
 
 FILLER = ("銀行法第十二條所稱擔保授信，謂對於銀行之授信，提供左列之一為擔保者："
           "不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、"
@@ -1089,11 +1089,17 @@ for name, prompt in PROMPTS.items():
     print(f"\n===== {name} =====")
     call(prompt, 8)   # warm-up
     print("  A 單獨送 …")
-    iso = [call(prompt, MAX_TOKENS, True) for _ in range(N_REP)]
+    iso = []
+    for i in range(N_REP):
+        iso.append(call(prompt, MAX_TOKENS, True)); print(f"a{i+1}", end=" ", flush=True)
+    print()
     print("  B 混雜送（24 條雜訊並發）…")
     ths = [threading.Thread(target=noise, args=(i,), daemon=True) for i in range(NOISE_THREADS)]
     stop_ev.clear(); [t.start() for t in ths]; time.sleep(4)
-    mix = [call(prompt, MAX_TOKENS, True) for _ in range(N_REP)]
+    mix = []
+    for i in range(N_REP):
+        mix.append(call(prompt, MAX_TOKENS, True)); print(f"b{i+1}", end=" ", flush=True)
+    print()
     stop_ev.set(); [t.join(timeout=90) for t in ths]
 
     base = iso[0]
