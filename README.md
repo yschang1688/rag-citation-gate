@@ -71,6 +71,10 @@ python -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python src/hallucination_drill.py # 幻覺注入演練（不呼叫模型，數秒）
 ./.venv/bin/python src/rag.py "銀行可以經營哪些業務？"
 ./.venv/bin/python -m pytest tests/ -q        # 引文閘單元測試（11 則）
+
+# 選配：cross-encoder 重排（bge-reranker-v2-m3），預設關閉；需 FlagEmbedding+torch，
+# 每題多 1–4 秒，量測與取捨見 bench/RETRIEVAL_FINDINGS.md
+RERANK=cross ./.venv/bin/python src/rag.py "銀行可以經營哪些業務？"
 ```
 
 整條管線**不呼叫任何雲端 API**：embedding 走本機 bge-m3、生成走本機 qwen3.5:9b，成本為零、可離線重跑。代價是生成品質受限於本機小模型（見「誠實邊界」）。

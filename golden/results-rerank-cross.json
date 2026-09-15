@@ -1,0 +1,422 @@
+{
+ "metrics": {
+  "model": "qwen3.5:9b",
+  "top_k": 5,
+  "rerank": "cross",
+  "cases": 20,
+  "retrieval_recall_at_k": 1.0,
+  "answered_rate": 1.0,
+  "citation_precision": 1.0,
+  "false_answer_rate": 0.0,
+  "elapsed_sec": 716.8
+ },
+ "rows": [
+  {
+   "id": "q01",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "銀行法",
+     "label": "第3條",
+     "verdict": "VALID"
+    },
+    {
+     "law": "銀行法",
+     "label": "第4條",
+     "verdict": "VALID"
+    },
+    {
+     "law": "銀行法",
+     "label": "第71條",
+     "verdict": "VALID"
+    },
+    {
+     "law": "銀行法",
+     "label": "第28條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "銀行法第3條",
+    "銀行法第71條",
+    "銀行法第4條",
+    "銀行法第28條",
+    "銀行法第101條"
+   ],
+   "answer": "銀行得經營之業務項目由中央主管機關按其類別就本法所定範圍內分別核定，並於營業執照上載明；其有關外匯業務須經中央銀行許可。商業銀行及專業銀行經營信託或證券業務時，營業及會計必須獨立，營運範圍及風險管理規定由主管機關定之，且應指撥營運資金專款經營並經核准。銀行經營信託及證券業務人員對客戶往來、交易資料應保守秘密。"
+  },
+  {
+   "id": "q02",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "銀行法",
+     "label": "第5-1條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "銀行法第5-1條",
+    "銀行法第29-1條",
+    "銀行法第70條",
+    "銀行法第10條",
+    "銀行法第29條"
+   ],
+   "answer": "本法稱收受存款，謂向不特定多數人收受款項或吸收資金，並約定返還本金或給付相當或高於本金之行為。"
+  },
+  {
+   "id": "q03",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "銀行法",
+     "label": "第12條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "銀行法第12條",
+    "銀行法第33條",
+    "銀行法第31條",
+    "銀行法第30條",
+    "銀行法第33-2條"
+   ],
+   "answer": "銀行法所稱擔保授信，可提供之擔保包括：不動產或動產抵押權、動產或權利質權、借款人營業交易所發生之應收票據、以及各級政府公庫主管機關、銀行或經政府核准設立之信用保證機構之保證。"
+  },
+  {
+   "id": "q04",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "銀行法",
+     "label": "第 32 條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "銀行法第32條",
+    "銀行法第33-2條",
+    "銀行法第33條",
+    "銀行法第13條",
+    "銀行法第36條"
+   ],
+   "answer": "銀行不得對其主要股東為無擔保授信，但消費者貸款不在此限。"
+  },
+  {
+   "id": "q05",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "銀行法",
+     "label": "第 72-2 條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "銀行法第72-2條",
+    "銀行法第38條",
+    "銀行法第75條",
+    "銀行法第72條",
+    "銀行法第99條"
+   ],
+   "answer": "商業銀行辦理住宅建築及企業建築放款之總額，不得超過放款時所收存款總餘額及金融債券發售額之和之百分之三十。"
+  },
+  {
+   "id": "q06",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "洗錢防制法",
+     "label": "第2條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "洗錢防制法第2條",
+    "洗錢防制法第9條",
+    "洗錢防制法第19條",
+    "洗錢防制法第3條",
+    "洗錢防制法第1條"
+   ],
+   "answer": "洗錢防制法所稱洗錢，指下列行為：一、隱匿特定犯罪所得或掩飾其來源。二、妨礙或危害國家對於特定犯罪所得之調查、發現、保全、沒收或追徵。三、收受、持有或使用他人之特定犯罪所得。四、使用自己之特定犯罪所得與他人進行交易。"
+  },
+  {
+   "id": "q07",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "洗錢防制法",
+     "label": "第10條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "洗錢防制法第10條",
+    "洗錢防制法第8條",
+    "洗錢防制法第11條",
+    "銀行法第38條",
+    "洗錢防制法第12條"
+   ],
+   "answer": "五年"
+  },
+  {
+   "id": "q08",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "洗錢防制法",
+     "label": "第12條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "洗錢防制法第12條",
+    "洗錢防制法第14條",
+    "洗錢防制法第13條",
+    "銀行法第4條",
+    "洗錢防制法第10條"
+   ],
+   "answer": "應向法務部調查局申報"
+  },
+  {
+   "id": "q09",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "個人資料保護法",
+     "label": "第3條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "個人資料保護法第3條",
+    "個人資料保護法第19條",
+    "個人資料保護法第8條",
+    "個人資料保護法第6條",
+    "個人資料保護法第11條"
+   ],
+   "answer": "當事人就其個人資料依本法規定行使之下列權利，不得預先拋棄或以特約限制之：一、查詢或請求閱覽。二、請求製給複製本。三、請求補充或更正。四、請求停止蒐集、處理或利用。五、請求刪除。"
+  },
+  {
+   "id": "q10",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "個人資料保護法",
+     "label": "第11條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "個人資料保護法第11條",
+    "個人資料保護法第19條",
+    "個人資料保護法第12條",
+    "個人資料保護法第20條",
+    "個人資料保護法第15條"
+   ],
+   "answer": "應主動或依當事人之請求，刪除、停止處理或利用該個人資料。但因執行職務或業務所必須或經當事人書面同意者，不在此限。"
+  },
+  {
+   "id": "q11",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "個人資料保護法",
+     "label": "第 29 條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "個人資料保護法第29條",
+    "個人資料保護法第28條",
+    "個人資料保護法第31條",
+    "個人資料保護法第33條",
+    "個人資料保護法第25條"
+   ],
+   "answer": "是，非公務機關違反本法規定，致個人資料遭不法蒐集、處理、利用或其他侵害當事人權利者，負損害賠償責任。但能證明其無故意或過失者，不在此限。"
+  },
+  {
+   "id": "q12",
+   "answerable": true,
+   "retrieval_hit": true,
+   "gate": "PASS",
+   "citations": [
+    {
+     "law": "個人資料保護法",
+     "label": "第19條",
+     "verdict": "VALID"
+    }
+   ],
+   "answered": true,
+   "retrieved": [
+    "個人資料保護法第19條",
+    "個人資料保護法第9條",
+    "個人資料保護法第20條",
+    "個人資料保護法第10條",
+    "個人資料保護法第8條"
+   ],
+   "answer": "非公務機關對個人資料之蒐集或處理，除第六條第一項所規定資料外，應有特定目的，並符合下列情形之一者：一、法律明文規定。二、與當事人有契約或類似契約之關係，且已採取適當之安全措施。三、當事人自行公開或其他已合法公開之個人資料。四、學術研究機構基於公共利益為統計或學術研究而有必要，且資料經過提供者處理後或經蒐集者依其揭露方式無從識別特定之當事人。五、經當事人同意。六、為增進公共利益所必要。七、個人資料取自於一般可得之來源。但當事人對該資料之禁止處理或利用，顯有更值得保護之重大利益者，不在此限。八、對當事人權益無侵害。"
+  },
+  {
+   "id": "u01",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "洗錢防制法第24條",
+    "銀行法第125-8條",
+    "銀行法第125-7條",
+    "銀行法第125-1條",
+    "銀行法第125條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "u02",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "銀行法第51條",
+    "個人資料保護法第13條",
+    "洗錢防制法第3條",
+    "銀行法第136-2條",
+    "洗錢防制法第8條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "u03",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "銀行法第126條",
+    "銀行法第107條",
+    "銀行法第91-1條",
+    "銀行法第62-4條",
+    "銀行法第25-1條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "u04",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "銀行法第50條",
+    "銀行法第74條",
+    "洗錢防制法第13條",
+    "銀行法第129條",
+    "銀行法第128條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "n01",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "銀行法第46條",
+    "銀行法第48條",
+    "銀行法第64-1條",
+    "個人資料保護法第28條",
+    "銀行法第129條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "n02",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "銀行法第24條",
+    "銀行法第23條",
+    "銀行法第103條",
+    "銀行法第129條",
+    "銀行法第127-1條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "n03",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "洗錢防制法第12條",
+    "洗錢防制法第13條",
+    "洗錢防制法第7條",
+    "洗錢防制法第19條",
+    "洗錢防制法第14條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  },
+  {
+   "id": "n04",
+   "answerable": false,
+   "retrieval_hit": null,
+   "gate": "NO_CITATION",
+   "citations": [],
+   "answered": false,
+   "retrieved": [
+    "銀行法第72-2條",
+    "銀行法第38條",
+    "銀行法第37條",
+    "銀行法第12-1條",
+    "銀行法第47-1條"
+   ],
+   "answer": "（已拒答）模型回答未通過引文驗證，不予呈現。"
+  }
+ ]
+}

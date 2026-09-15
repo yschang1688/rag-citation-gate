@@ -26,50 +26,10 @@ bge-reranker-v2-m3：568M 參數、100+ 語言、2–4GB RAM，是 bge-m3 的官
 """
 from __future__ import annotations
 
-import os
+import sys
+from pathlib import Path
 
-_MODEL = None
-MODEL_NAME = "BAAI/bge-reranker-v2-m3"
-
-
-def _load():
-    """延後載入：只有真的要用重排時才吃這 2GB 記憶體。
-
-    device 選 MPS（Apple GPU）；FlagEmbedding 在 MPS 上若遇到未實作的算子
-    會拋錯，屆時退回 CPU——568M 的模型在 CPU 上也跑得動，只是慢。
-    """
-    global _MODEL
-    if _MODEL is None:
-        from FlagEmbedding import FlagReranker
-        device = os.environ.get("RERANK_DEVICE", "mps")
-        try:
-            _MODEL = FlagReranker(MODEL_NAME, use_fp16=True, devices=device)
-        except Exception:
-            _MODEL = FlagReranker(MODEL_NAME, use_fp16=False, devices="cpu")
-    return _MODEL
-
-
-def cross_rerank(question: str, hits: list[dict], top_k: int) -> list[dict]:
-    """對召回的候選逐一算 query-document 相關性分數，由高到低重排。
-
-    與 LLM 版一樣的失敗處置：出任何問題就回傳原順序。重排是優化不是必要步驟，
-    它壞掉時系統該退回沒有它的樣子。
-    """
-    if len(hits) <= 1:
-        return hits[:top_k]
-    try:
-        pairs = [[question, f"{h['law']}{h['label']} {h.get('text') or ''}"] for h in hits]
-        scores = _load().compute_score(pairs, normalize=True)
-        if not isinstance(scores, list):
-            scores = [scores]
-        if len(scores) != len(hits):
-            return hits[:top_k]
-    except Exception:
-        return hits[:top_k]
-    order = sorted(range(len(hits)), key=lambda i: -scores[i])
-    out = []
-    for i in order[:top_k]:
-        h = dict(hits[i])
-        h["rerank_score"] = round(float(scores[i]), 4)
-        out.append(h)
-    return out
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+# 2026-09-15 起實作搬到 src/rerank.py（生產路徑，RERANK=cross 啟用）；這裡只轉出口，
+# 讓上面的 bench 指令與既有量測紀錄照舊可跑，不留第二份實作。
+from rerank import MODEL_NAME, _load, cross_rerank  # noqa: E402,F401

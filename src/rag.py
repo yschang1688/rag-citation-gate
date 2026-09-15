@@ -13,6 +13,7 @@ import sys
 
 import requests
 
+import rerank
 from citegate import Citation, GateResult, verify
 from store import OLLAMA, connect, embed, to_vec
 
@@ -76,17 +77,23 @@ def retrieve(question: str, k: int = TOP_K) -> list[dict]:
     指名條號時往往還有語義成分（「第32條限制了哪一種授信」），保留向量那幾席
     讓語境有機會進來。
     """
-    cited = _cited_articles(question, k)
+    # 有重排時先召回 k×2 的池子再排；沒有重排就直接取 k。重排只能改順序、
+    # 不能無中生有，池子要比 k 大才有東西可排（RERANK=cross，預設關閉）。
+    n = k * rerank.POOL_MULT if rerank.enabled() else k
+    cited = _cited_articles(question, n)
     seen = {(c["law"], c["label"]) for c in cited}
     qv = embed([question])[0]
     with connect() as conn:
         cur = conn.cursor()
         cur.execute(
             """SELECT law, label, text, embedding <=> %s::vector AS dist
-               FROM article ORDER BY dist LIMIT %s""", (to_vec(qv), k))
+               FROM article ORDER BY dist LIMIT %s""", (to_vec(qv), n))
         dense = [dict(law=r[0], label=r[1], text=r[2], dist=float(r[3]), via="dense")
                  for r in cur.fetchall()]
-    return (cited + [d for d in dense if (d["law"], d["label"]) not in seen])[:k]
+    pool = (cited + [d for d in dense if (d["law"], d["label"]) not in seen])[:n]
+    if rerank.enabled():
+        return rerank.cross_rerank(question, pool, k)
+    return pool[:k]
 
 
 def generate(question: str, retrieved: list[dict]) -> dict:

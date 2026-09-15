@@ -21,10 +21,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import rerank  # noqa: E402
 from rag import GEN_MODEL, TOP_K, ask  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent.parent / "golden" / "questions.json"
-OUT = Path(__file__).resolve().parent.parent / "golden" / "results.json"
+# 開重排時寫到另一個檔，results.json 永遠是預設路徑（不重排）的紀錄，兩者不互蓋。
+OUT = Path(__file__).resolve().parent.parent / "golden" / (
+    "results.json" if not rerank.enabled() else f"results-rerank-{rerank.MODE}.json")
 
 
 def norm(s: str) -> str:
@@ -58,7 +61,7 @@ def main() -> None:
     una = [r for r in rows if not r["answerable"]]
     cits = [c for r in rows for c in r["citations"]]
     m = {
-        "model": GEN_MODEL, "top_k": TOP_K, "cases": len(rows),
+        "model": GEN_MODEL, "top_k": TOP_K, "rerank": rerank.MODE, "cases": len(rows),
         "retrieval_recall_at_k": round(sum(r["retrieval_hit"] for r in ans) / len(ans), 3),
         "answered_rate": round(sum(r["answered"] for r in ans) / len(ans), 3),
         "citation_precision": (round(sum(c["verdict"] == "VALID" for c in cits) / len(cits), 3)
