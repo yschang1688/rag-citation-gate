@@ -15,9 +15,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install pytest
-      # 引文閘的單元測試不需要向量庫或模型：閘門是純函式，
+      # 裝 requirements.txt 而非只裝 pytest：測試模組載入時會 import 檢索層（psycopg／requests），
+      # 2026-09-13 加入檢索策略後只裝 pytest 會在收集階段就 ImportError（CI 連紅五次才發現）。
+      # 引文閘的單元測試仍不連向量庫、不呼叫模型：閘門是純函式，
       # 這也正是它可以被信任的原因之一——可驗證的部分不依賴不可驗證的元件。
+      - run: pip install -r requirements.txt
       - run: python -m pytest tests/ -q
 
   corpus-integrity:
